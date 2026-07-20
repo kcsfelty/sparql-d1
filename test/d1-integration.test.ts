@@ -33,7 +33,7 @@ describe('workerd D1 integration', () => {
       script: 'export default { fetch() { return new Response("ok") } }',
       compatibilityDate: '2026-07-19',
       compatibilityFlags: ['nodejs_compat'],
-      d1Databases: { DB: 'sparql-d1-test' },
+      d1Databases: { DB: 'diamond-test' },
     });
     db = (await miniflare.getD1Database('DB')) as unknown as D1DatabaseLike;
     await initializeStore(db);

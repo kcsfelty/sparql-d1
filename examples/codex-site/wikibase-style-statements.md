@@ -3,7 +3,7 @@
 This application-layer example maps ranked statements, qualifiers, grouped
 references, full values, `somevalue`/`novalue` markers, best-rank annotations,
 truthy projections, and entity revisions to ordinary RDF/JS quads. It does not
-add Wikibase behavior to `sparql-d1` core and it does not depend on Wikipedia,
+add Wikibase behavior to Diamond core and it does not depend on Wikipedia,
 Wikidata, or a Wikibase service.
 
 `buildWikibaseStyleEntityQuads()` is the domain mapping. The example deliberately

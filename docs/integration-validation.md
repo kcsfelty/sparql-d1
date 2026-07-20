@@ -11,7 +11,7 @@ Start in a fresh directory and new Codex task with no inherited project context.
 Create a new Codex Sites project and install the public package:
 
 ```sh
-npm install sparql-d1
+npm install @gnolith/diamond
 ```
 
 Do not install the Git repository directly; generated `dist` files are
@@ -27,7 +27,7 @@ that archive plus public-facing documentation. The validator installs the exact
 archive from a `vendor/` directory:
 
 ```sh
-npm install ./vendor/sparql-d1-<version>.tgz
+npm install ./vendor/gnolith-diamond-<version>.tgz
 ```
 
 Do not give the validator an existing checkout, configured Site, implementation
@@ -94,7 +94,7 @@ SPARQL_AUTH_HEADER=Authorization \
 SPARQL_AUTH_TOKEN="$SPARQL_ADMIN_TOKEN" \
 SPARQL_OUTER_AUTH_HEADER=OAI-Sites-Authorization \
 SPARQL_OUTER_AUTH_TOKEN="$SITES_TEST_BYPASS_TOKEN" \
-npm explore sparql-d1 -- npm run test:deployed:schema
+npm explore @gnolith/diamond -- npm run test:deployed:schema
 ```
 
 The command must report both tables as strict, the uniqueness autoindex plus
@@ -104,7 +104,7 @@ with the writable route and administrator secret before the final deployment.
 For a temporary write-enabled validation endpoint, run the repository's
 `scripts/deployed-e2e.mjs` through `npm run test:deployed`, as documented
 in `docs/deployed-e2e.md`. Run it from the installed package (for example with
-`npm explore sparql-d1 -- npm run test:deployed`) to prove the published
+`npm explore @gnolith/diamond -- npm run test:deployed`) to prove the published
 artifact contains the script.
 
 ## Sign-off record

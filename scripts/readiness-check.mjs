@@ -72,7 +72,7 @@ assert.equal(packageJson.private, false);
 assert.match(packageJson.engines?.node ?? '', /^>=22/);
 assert.equal(
   packageJson.repository?.url,
-  'https://github.com/kcsfelty/sparql-d1.git',
+  'https://github.com/gnolith/diamond.git',
 );
 
 for (const file of [

@@ -2,7 +2,7 @@
 
 Copy this example's `app`, `drizzle`, and `.openai` files into a fresh Sites
 project. The hosting declaration binds D1 as `DB`; Sites packages the Drizzle
-migrations for its managed database. Install `sparql-d1` from npm and configure
+migrations for its managed database. Install `@gnolith/diamond` from npm and configure
 `SPARQL_TOKEN` through Sites runtime values. Do not commit the token or place it
 in `.openai/hosting.json`.
 

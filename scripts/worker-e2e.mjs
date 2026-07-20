@@ -9,7 +9,7 @@ const miniflare = new Miniflare({
   scriptPath: resolve('.wrangler/dry-run/worker.js'),
   compatibilityDate: '2026-07-19',
   compatibilityFlags: ['nodejs_compat'],
-  d1Databases: { DB: 'sparql-d1-worker-test' },
+  d1Databases: { DB: 'diamond-worker-test' },
 });
 
 try {

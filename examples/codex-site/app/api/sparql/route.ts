@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { createSparqlHandler } from 'sparql-d1/endpoint';
+import { createSparqlHandler } from '@gnolith/diamond/endpoint';
 
 interface SiteEnvironment {
   DB: D1Database;

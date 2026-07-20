@@ -24,7 +24,7 @@ assert.equal(
 );
 assert.equal(
   packageJson.repository?.url,
-  'https://github.com/kcsfelty/sparql-d1.git',
+  'https://github.com/gnolith/diamond.git',
   'repository URL must match the provenance source repository',
 );
 if (process.env.GITHUB_REPOSITORY_VISIBILITY === 'public') {

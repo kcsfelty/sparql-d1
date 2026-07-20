@@ -5,6 +5,15 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-20
+
+### Changed
+
+- Renamed the project to Diamond and moved the source repository to the
+  Gnolith organization.
+- Published the package under its permanent scoped identity,
+  `@gnolith/diamond`; the former `sparql-d1` package now points users here.
+
 ## [0.2.1] - 2026-07-20
 
 ### Added

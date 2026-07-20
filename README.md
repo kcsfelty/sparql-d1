@@ -1,14 +1,16 @@
-# sparql-d1
+# Diamond
 
-`sparql-d1` is a TypeScript RDF/JS source and SPARQL Protocol handler backed by
-Cloudflare D1. It is designed for Cloudflare Workers and Codex Sites projects
-that need a standards-based RDF query surface without operating a separate
-triplestore.
+**SPARQL ↔ D1: RDF querying and atomic storage for Cloudflare D1.**
+
+`@gnolith/diamond` is a TypeScript RDF/JS source and SPARQL Protocol handler
+backed by Cloudflare D1. It is designed for Cloudflare Workers and Codex Sites
+projects that need a standards-based RDF query surface without operating a
+separate triplestore.
 
 > Status: public experimental release. SPARQL/RDF correctness is extensively
 > tested, while the TypeScript API and physical D1 schema may change before
-> 1.0. See the [npm package](https://www.npmjs.com/package/sparql-d1) and
-> [v0.2.1 release](https://github.com/kcsfelty/sparql-d1/releases/tag/v0.2.1).
+> 1.0. See the [npm package](https://www.npmjs.com/package/@gnolith/diamond)
+> and [v0.3.0 release](https://github.com/gnolith/diamond/releases/tag/v0.3.0).
 
 ## What it provides
 
@@ -33,7 +35,7 @@ triplestore.
 Install the public package:
 
 ```sh
-npm install sparql-d1
+npm install @gnolith/diamond
 ```
 
 Maintainers validating an unreleased commit can run `npm pack` and install the
@@ -59,7 +61,7 @@ Then create a route whose handler is initialized once at module scope:
 
 ```ts
 import { env } from 'cloudflare:workers';
-import { createSparqlHandler } from 'sparql-d1/endpoint';
+import { createSparqlHandler } from '@gnolith/diamond/endpoint';
 
 const handle = createSparqlHandler({
   db: env.DB,
@@ -91,7 +93,7 @@ role system for the host application.
 
 ```ts
 import { QueryEngine } from '@comunica/query-sparql-rdfjs-lite';
-import { D1QuadSource } from 'sparql-d1';
+import { D1QuadSource } from '@gnolith/diamond';
 
 const source = new D1QuadSource(env.DB);
 const engine = new QueryEngine();

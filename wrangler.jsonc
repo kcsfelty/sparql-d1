@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "sparql-d1-bundle-check",
+  "name": "diamond-bundle-check",
   "main": "test/fixtures/worker.ts",
   "compatibility_date": "2026-07-19",
   "compatibility_flags": ["nodejs_compat"],

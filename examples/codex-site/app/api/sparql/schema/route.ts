@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { inspectStoreSchema } from 'sparql-d1';
+import { inspectStoreSchema } from '@gnolith/diamond';
 
 interface SiteEnvironment {
   DB: D1Database;

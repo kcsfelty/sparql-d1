@@ -1,8 +1,8 @@
 {
-  "name": "sparql-d1",
-  "version": "0.2.1",
-  "description": "A Comunica-compatible RDF/JS source backed by Cloudflare D1.",
-  "author": "kcsfelty",
+  "name": "@gnolith/diamond",
+  "version": "0.3.0",
+  "description": "SPARQL ↔ D1: RDF querying and atomic storage for Cloudflare D1.",
+  "author": "Gnolith contributors",
   "keywords": [
     "cloudflare-d1",
     "comunica",
@@ -15,11 +15,11 @@
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "https://github.com/kcsfelty/sparql-d1.git"
+    "url": "https://github.com/gnolith/diamond.git"
   },
-  "homepage": "https://github.com/kcsfelty/sparql-d1#readme",
+  "homepage": "https://github.com/gnolith/diamond#readme",
   "bugs": {
-    "url": "https://github.com/kcsfelty/sparql-d1/issues"
+    "url": "https://github.com/gnolith/diamond/issues"
   },
   "publishConfig": {
     "access": "public",

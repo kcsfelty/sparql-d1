@@ -3,7 +3,7 @@
 Use this prompt in a new, projectless Codex task with no inherited conversation
 or configured project. Replace only `ARTIFACT_PATH` and `EVIDENCE_PATH`.
 
-> Independently validate `sparql-d1` as a developer encountering it for the
+> Independently validate `@gnolith/diamond` as a developer encountering it for the
 > first time. Start in an empty working directory. You may use only the package
 > archive at `ARTIFACT_PATH` and the README, example, and documentation packed
 > inside it. Do not inspect another checkout of the source repository, reuse an

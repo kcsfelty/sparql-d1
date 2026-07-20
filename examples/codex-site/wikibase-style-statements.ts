@@ -1,7 +1,7 @@
 import type * as RDF from '@rdfjs/types';
 import { DataFactory } from 'rdf-data-factory';
-import { applyQuadPatch } from 'sparql-d1';
-import type { D1DatabaseLike, QuadPatchResult } from 'sparql-d1';
+import { applyQuadPatch } from '@gnolith/diamond';
+import type { D1DatabaseLike, QuadPatchResult } from '@gnolith/diamond';
 
 const factory = new DataFactory();
 const RDF_TYPE = factory.namedNode(

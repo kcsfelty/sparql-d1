@@ -28,7 +28,7 @@ jobs:
       - name: Generate SBOM and checksums
         shell: bash
         run: |
-          npm sbom --omit=dev --sbom-format cyclonedx > "sparql-d1-${GITHUB_REF_NAME#v}.sbom.json"
+          npm sbom --omit=dev --sbom-format cyclonedx > "diamond-${GITHUB_REF_NAME#v}.sbom.json"
           sha256sum ./*.tgz ./*.sbom.json > SHA256SUMS
       - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:

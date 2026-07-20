@@ -7,8 +7,9 @@ const npmCli = process.env.npm_execpath;
 if (!npmCli) {
   throw new Error('consumer smoke must be run through npm');
 }
-const root = mkdtempSync(join(tmpdir(), 'sparql-d1-consumer-'));
+const root = mkdtempSync(join(tmpdir(), 'diamond-consumer-'));
 const sourcePackage = JSON.parse(readFileSync('package.json', 'utf8'));
+const packagePath = join(...sourcePackage.name.split('/'));
 const packOutput = execFileSync(
   process.execPath,
   [npmCli, 'pack', '--json', '--pack-destination', root],
@@ -42,8 +43,8 @@ writeFileSync(
       D1QuadSource,
       allowServiceUrls,
       initializeStore,
-    } from 'sparql-d1';
-    import { createSparqlHandler } from 'sparql-d1/endpoint';
+    } from '@gnolith/diamond';
+    import { createSparqlHandler } from '@gnolith/diamond/endpoint';
     if (
       typeof D1QuadSource !== 'function' ||
       typeof allowServiceUrls !== 'function' ||
@@ -60,7 +61,7 @@ execFileSync(process.execPath, [join(root, 'smoke.mjs')], {
 });
 
 const installed = JSON.parse(
-  readFileSync(join(root, 'node_modules', 'sparql-d1', 'package.json'), 'utf8'),
+  readFileSync(join(root, 'node_modules', packagePath, 'package.json'), 'utf8'),
 );
 if (
   installed.private !== sourcePackage.private ||
@@ -73,7 +74,7 @@ for (const path of [
   'scripts/deployed-schema-check.mjs',
   'SECURITY.md',
 ]) {
-  if (!existsSync(join(root, 'node_modules', 'sparql-d1', path))) {
+  if (!existsSync(join(root, 'node_modules', packagePath, path))) {
     throw new Error(`Packed artifact is missing ${path}`);
   }
 }

@@ -6,7 +6,7 @@ import {
   QuadPatchConflictError,
   createSparqlHandler,
   initializeStore,
-} from 'sparql-d1';
+} from '@gnolith/diamond';
 import {
   addWikibaseStyleStatement,
   buildWikibaseStyleEntityQuads,

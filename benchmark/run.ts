@@ -57,7 +57,7 @@ const miniflare = new Miniflare({
   script: 'export default { fetch() { return new Response("ok") } }',
   compatibilityDate: '2026-07-19',
   compatibilityFlags: ['nodejs_compat'],
-  d1Databases: { DB: 'sparql-d1-benchmark' },
+  d1Databases: { DB: 'diamond-benchmark' },
 });
 
 interface ScenarioResult {

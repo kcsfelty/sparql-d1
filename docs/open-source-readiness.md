@@ -1,9 +1,9 @@
 # Open-source readiness
 
-The repository and npm package are public. `sparql-d1@0.1.0` was published with
-npm provenance after three independent clean-room attempts; the final attempt
-passed every package, fresh Codex Site, managed-D1, protocol, security, cleanup,
-and packed-verifier check on 2026-07-20.
+The repository and npm package are public. Diamond was independently validated
+before its move to `@gnolith/diamond`; the final clean-room attempt passed every
+package, fresh Codex Site, managed-D1, protocol, security, cleanup, and
+packed-verifier check on 2026-07-20.
 
 ## Completed controls
 

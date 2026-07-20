@@ -72,7 +72,7 @@ SPARQL_ENDPOINT=https://example.test/api/sparql npm run test:deployed
 ```
 
 To prove the packed command is executable rather than accidentally using a
-source checkout, a consumer can run it with `npm explore sparql-d1 -- npm run
+source checkout, a consumer can run it with `npm explore @gnolith/diamond -- npm run
 test:deployed` while supplying the same environment variables.
 
 For an authenticated endpoint, also set `SPARQL_AUTH_HEADER` and
@@ -98,7 +98,7 @@ SPARQL_AUTH_HEADER=Authorization \
 SPARQL_AUTH_TOKEN=admin-token \
 SPARQL_OUTER_AUTH_HEADER=OAI-Sites-Authorization \
 SPARQL_OUTER_AUTH_TOKEN=sites-bypass-token \
-npm explore sparql-d1 -- npm run test:deployed:schema
+npm explore @gnolith/diamond -- npm run test:deployed:schema
 ```
 
 PowerShell users can set the same values without POSIX inline assignment:
@@ -109,7 +109,7 @@ $env:SPARQL_AUTH_HEADER='Authorization'
 $env:SPARQL_AUTH_TOKEN='<admin token>'
 $env:SPARQL_OUTER_AUTH_HEADER='OAI-Sites-Authorization'
 $env:SPARQL_OUTER_AUTH_TOKEN='<Sites bypass token>'
-npm explore sparql-d1 -- npm run test:deployed:schema
+npm explore @gnolith/diamond -- npm run test:deployed:schema
 ```
 
 The verifier fails unless the deployed catalog contains strict `rdf_quads` and
