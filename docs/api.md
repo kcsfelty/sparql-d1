@@ -1,6 +1,6 @@
 # API reference
 
-All APIs are ESM and require Node.js 20 or a compatible Workers runtime.
+All APIs are ESM and require Node.js 22 or a compatible Workers runtime.
 
 ## Endpoint
 
