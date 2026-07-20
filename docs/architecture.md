@@ -41,6 +41,10 @@ transaction; optional forbidden quads provide an atomic absence precondition.
 All quad positions are recursively validated before the batch is prepared.
 This lets an application replace a complete domain-owned RDF
 closure while keeping its ontology and invariant logic outside the core store.
+`prepareQuadPatch()` exposes that validated statement plan for applications that
+must commit domain rows and RDF as one larger D1 batch. Its guard assertion is a
+failing SQL statement when a precondition is stale, so D1 rolls back statements
+outside the RDF plan as well as the quad changes.
 
 When `pageSize` is set, `D1QuadSource` uses deterministic SPOG keyset pages.
 Only one bounded page is retained by the source and cancellation prevents the

@@ -112,6 +112,8 @@ For domain edits that replace related RDF facts together, use
 under `examples/codex-site` demonstrates ranked statements, qualifiers,
 references, truthy triples, and optimistic entity revisions as site-owned
 application behavior; it does not depend on Wikipedia, Wikidata, or Wikibase.
+Use `prepareQuadPatch()` when the same RDF patch must share one atomic D1 batch
+with application-owned rows.
 
 ## Security
 

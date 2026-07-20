@@ -137,6 +137,13 @@ protects the complete handler; authorization roles remain a host concern.
   no-op result when all required quads exist and throws on a missing quad.
   Every `forbid` quad must be absent; forbid-only patches provide the inverse
   assertion and use the same conflict error.
+- `prepareQuadPatch(db, patch)` performs the same validation without executing
+  D1 work. It returns an ordered `statements` sequence that can be embedded in
+  a caller-owned batch, plus `readResult(results, offset?)` and
+  `mapError(cause)`. Execute the complete sequence, in order, in the same batch
+  as adjacent application writes. A failed require/forbid assertion deliberately
+  aborts that entire batch; pass its rejection through `mapError` to recover
+  `QuadPatchConflictError`.
 
 Atomic write payloads are limited to 1.9 MB, leaving headroom below D1's 2 MB
 bound-value limit. Split larger imports at the application boundary.

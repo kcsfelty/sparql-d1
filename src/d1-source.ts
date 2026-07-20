@@ -74,6 +74,21 @@ export interface QuadPatchResult {
   inserted: number;
 }
 
+/**
+ * A validated quad patch that can be included in a caller-owned D1 batch.
+ * Execute every statement, in order, as one batch. Pass the complete batch
+ * result and the plan's starting offset to `readResult` after it succeeds.
+ */
+export interface PreparedQuadPatch {
+  readonly statements: readonly D1PreparedStatementLike[];
+  /** Maps the patch's deliberate guard assertion failure to its typed error. */
+  mapError(cause: unknown): Error;
+  readResult(
+    results: readonly D1ResultLike[],
+    offset?: number,
+  ): QuadPatchResult;
+}
+
 export class QuadPatchConflictError extends Error {
   constructor() {
     super('Quad patch precondition failed');
@@ -353,6 +368,27 @@ export async function applyQuadPatch(
   db: D1DatabaseLike,
   patch: QuadPatch,
 ): Promise<QuadPatchResult> {
+  const prepared = prepareQuadPatch(db, patch);
+  if (!prepared.statements.length) {
+    return prepared.readResult([]);
+  }
+  try {
+    const results = await db.batch([...prepared.statements]);
+    return prepared.readResult(results);
+  } catch (cause) {
+    throw prepared.mapError(cause);
+  }
+}
+
+/**
+ * Validates and prepares a quad patch without executing it. The returned
+ * statements are transaction-composable with adjacent application writes.
+ * Callers must execute the complete sequence in order in one D1 batch.
+ */
+export function prepareQuadPatch(
+  db: D1DatabaseLike,
+  patch: QuadPatch,
+): PreparedQuadPatch {
   const requireRows = encodeDeleteRows(patch.require ?? []);
   const forbidRows = encodeDeleteRows(patch.forbid ?? []);
   const deleteRows = encodeDeleteRows(patch.delete ?? []);
@@ -363,7 +399,7 @@ export async function applyQuadPatch(
     !deleteRows.length &&
     !insertRows.length
   ) {
-    return { deleted: 0, inserted: 0 };
+    return preparedPatch([], undefined, undefined, undefined);
   }
 
   const requirePayload = requireRows.length
@@ -389,6 +425,7 @@ export async function applyQuadPatch(
   if (guardId !== undefined) {
     guardResultIndex = statements.length;
     statements.push(prepareGuard(db, guardId, requirePayload, forbidPayload));
+    statements.push(prepareGuardAssertion(db, guardId));
   }
   if (deletePayload !== null) {
     deleteResultIndex = statements.length;
@@ -406,22 +443,60 @@ export async function applyQuadPatch(
     );
   }
 
-  const results = await db.batch(statements);
-  if (
-    guardResultIndex !== undefined &&
-    Number(results[guardResultIndex]?.meta?.changes ?? 0) !== 1
-  ) {
-    throw new QuadPatchConflictError();
-  }
+  return preparedPatch(
+    statements,
+    guardResultIndex,
+    deleteResultIndex,
+    insertResultIndex,
+  );
+}
+
+function preparedPatch(
+  statements: D1PreparedStatementLike[],
+  guardResultIndex: number | undefined,
+  deleteResultIndex: number | undefined,
+  insertResultIndex: number | undefined,
+): PreparedQuadPatch {
   return {
-    deleted:
-      deleteResultIndex === undefined
-        ? 0
-        : Number(results[deleteResultIndex]?.meta?.changes ?? 0),
-    inserted:
-      insertResultIndex === undefined
-        ? 0
-        : Number(results[insertResultIndex]?.meta?.changes ?? 0),
+    statements,
+    mapError(cause) {
+      if (
+        guardResultIndex !== undefined &&
+        cause instanceof Error &&
+        /NOT NULL constraint failed: rdf_patch_guards\.patch_id/iu.test(
+          cause.message,
+        )
+      ) {
+        return new QuadPatchConflictError();
+      }
+      return cause instanceof Error ? cause : new Error(String(cause));
+    },
+    readResult(results, offset = 0) {
+      if (!Number.isSafeInteger(offset) || offset < 0) {
+        throw new RangeError(
+          'Quad patch result offset must be a non-negative safe integer',
+        );
+      }
+      if (results.length < offset + statements.length) {
+        throw new RangeError('Quad patch batch results are incomplete');
+      }
+      if (
+        guardResultIndex !== undefined &&
+        Number(results[offset + guardResultIndex]?.meta?.changes ?? 0) !== 1
+      ) {
+        throw new QuadPatchConflictError();
+      }
+      return {
+        deleted:
+          deleteResultIndex === undefined
+            ? 0
+            : Number(results[offset + deleteResultIndex]?.meta?.changes ?? 0),
+        inserted:
+          insertResultIndex === undefined
+            ? 0
+            : Number(results[offset + insertResultIndex]?.meta?.changes ?? 0),
+      };
+    },
   };
 }
 
@@ -581,6 +656,18 @@ function prepareGuard(
       )`,
     )
     .bind(guardId, requirePayload, forbidPayload);
+}
+
+function prepareGuardAssertion(db: D1DatabaseLike, guardId: string) {
+  return db
+    .prepare(
+      `INSERT INTO rdf_patch_guards (patch_id)
+      SELECT NULL
+      WHERE NOT EXISTS (
+        SELECT 1 FROM rdf_patch_guards WHERE patch_id = ?
+      )`,
+    )
+    .bind(guardId);
 }
 
 function prepareDelete(db: D1DatabaseLike, payload: string, guardId?: string) {

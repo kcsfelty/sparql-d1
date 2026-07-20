@@ -5,6 +5,11 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+### Added
+
+- Transaction-composable quad patch preparation for atomically batching RDF
+  changes with caller-owned D1 statements.
+
 ## [0.3.1] - 2026-07-20
 
 ### Changed

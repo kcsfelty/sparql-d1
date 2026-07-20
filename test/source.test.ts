@@ -12,6 +12,7 @@ import {
   deleteMatchingQuads,
   deleteQuads,
   insertQuads,
+  prepareQuadPatch,
 } from '../src/d1-source.js';
 import { initializeStore } from '../src/schema.js';
 import { MemoryD1 } from './memory-d1.js';
@@ -182,6 +183,52 @@ describe('D1QuadSource', () => {
         replacement.graph,
       ),
     ).resolves.toBe(1);
+  });
+
+  it('composes a prepared patch with adjacent statements and result offsets', async () => {
+    await db
+      .prepare('CREATE TABLE application_state (value TEXT NOT NULL)')
+      .run();
+    const replacement = factory.quad(ex('composed'), ex('value'), ex('next'));
+    const prepared = prepareQuadPatch(db, { insert: [replacement] });
+    const prefix = db
+      .prepare('INSERT INTO application_state (value) VALUES (?)')
+      .bind('committed');
+    const results = await db.batch([prefix, ...prepared.statements]);
+
+    expect(prepared.readResult(results, 1)).toEqual({
+      deleted: 0,
+      inserted: 1,
+    });
+    await expect(source.countQuads(replacement.subject)).resolves.toBe(1);
+    const application = await db
+      .prepare('SELECT value FROM application_state')
+      .all<{ value: string }>();
+    expect(application.results).toEqual([{ value: 'committed' }]);
+  });
+
+  it('rolls back adjacent statements when a prepared patch guard fails', async () => {
+    await db
+      .prepare('CREATE TABLE application_state (value TEXT NOT NULL)')
+      .run();
+    const prepared = prepareQuadPatch(db, {
+      require: [factory.quad(ex('missing'), ex('p'), ex('o'))],
+    });
+    const prefix = db
+      .prepare('INSERT INTO application_state (value) VALUES (?)')
+      .bind('must-roll-back');
+
+    let failure: unknown;
+    try {
+      await db.batch([prefix, ...prepared.statements]);
+    } catch (cause) {
+      failure = prepared.mapError(cause);
+    }
+    expect(failure).toBeInstanceOf(QuadPatchConflictError);
+    const application = await db
+      .prepare('SELECT value FROM application_state')
+      .all<{ value: string }>();
+    expect(application.results).toEqual([]);
   });
 
   it('supports empty and overlapping quad patches', async () => {

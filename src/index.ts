@@ -8,6 +8,7 @@ export {
   D1QuadStore,
   QuadPatchConflictError,
   applyQuadPatch,
+  prepareQuadPatch,
   deleteQuads,
   deleteMatchingQuads,
   insertQuads,
@@ -16,6 +17,7 @@ export type {
   D1QuadSourceOptions,
   QuadPatch,
   QuadPatchResult,
+  PreparedQuadPatch,
   QueryObservation,
 } from './d1-source.js';
 export {

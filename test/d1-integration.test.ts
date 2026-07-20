@@ -7,6 +7,7 @@ import {
   QuadPatchConflictError,
   applyQuadPatch,
   insertQuads,
+  prepareQuadPatch,
 } from '../src/d1-source.js';
 import { encodeTerm } from '../src/term-codec.js';
 import type { D1DatabaseLike } from '../src/d1-types.js';
@@ -260,6 +261,38 @@ describe('workerd D1 integration', () => {
       .prepare('SELECT COUNT(*) AS count FROM rdf_patch_guards')
       .all<{ count: number }>();
     expect(guards.results[0]?.count).toBe(0);
+  });
+
+  it('rolls back caller-owned writes when a composed patch guard fails', async () => {
+    await db
+      .prepare(
+        'CREATE TABLE IF NOT EXISTS composed_application_state (value TEXT NOT NULL)',
+      )
+      .run();
+    await db.prepare('DELETE FROM composed_application_state').run();
+    const missing = factory.quad(
+      factory.namedNode('https://example.test/composed-missing'),
+      factory.namedNode('https://example.test/value'),
+      factory.literal('missing'),
+    );
+    const prepared = prepareQuadPatch(db, { require: [missing] });
+
+    let failure: unknown;
+    try {
+      await db.batch([
+        db
+          .prepare('INSERT INTO composed_application_state (value) VALUES (?)')
+          .bind('must-roll-back'),
+        ...prepared.statements,
+      ]);
+    } catch (cause) {
+      failure = prepared.mapError(cause);
+    }
+    expect(failure).toBeInstanceOf(QuadPatchConflictError);
+    const state = await db
+      .prepare('SELECT value FROM composed_application_state')
+      .all<{ value: string }>();
+    expect(state.results).toEqual([]);
   });
 
   it('allows exactly one concurrent creation guarded by forbidden absence', async () => {
