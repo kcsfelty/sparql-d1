@@ -1,8 +1,12 @@
 # Deployed Codex Sites validation
 
-On 2026-07-19, the package was installed from its packed artifact into an
-owner-only Codex Site and exercised against that site's managed D1 binding at
+On 2026-07-19, package commit `34b790c` was installed from its packed artifact
+into an owner-only Codex Site and exercised against that site's managed D1 binding at
 <https://sparql-d1-e2e-probe.kcsfelty.chatgpt.site/api/sparql>.
+
+The latest proof used saved Site version 3 from Site source commit `94b1209`.
+That source vendors the package tarball whose SHA-256 is
+`7C6B128B7590584C76D7388609F11F3ADB8A25738388F76FCAE6E2052E7BA32A`.
 
 The acceptance sequence crossed the production HTTP and storage boundary on
 every operation:
@@ -22,21 +26,21 @@ the Workers-compatible global. A second saved version passed the complete
 sequence. This failure is retained here because it demonstrates why a real
 deployment test is part of the release process.
 
-Warm Worker telemetry for the successful run recorded:
+Worker telemetry for the version 3 acceptance run recorded:
 
 | Operation        | CPU time | Wall time |
 | ---------------- | -------: | --------: |
-| INSERT           |    10 ms |    132 ms |
-| SELECT           |     8 ms |     89 ms |
-| CONSTRUCT        |    12 ms |     94 ms |
-| Rejected SERVICE |     3 ms |      3 ms |
-| DROP cleanup     |     6 ms |    106 ms |
+| INSERT           |   366 ms |    728 ms |
+| SELECT           |    71 ms |    186 ms |
+| CONSTRUCT        |    40 ms |    121 ms |
+| Rejected SERVICE |     4 ms |      6 ms |
+| DROP cleanup     |     7 ms |    129 ms |
 
-An earlier cold INSERT used 303 ms CPU and 626 ms wall time while the lazy
-engine initialized. These numbers are observations from one private validation
-deployment, not service-level guarantees. Worker logs did not expose heap or
-D1 `rows_read`; the deterministic local benchmark reports heap, D1 calls,
-returned rows, and latency separately.
+Earlier successful runs were materially faster after initialization, so these
+numbers are observations from one private validation deployment, not
+service-level guarantees. Worker logs did not expose heap or D1 `rows_read`;
+the deterministic local benchmark reports heap, D1 calls, returned rows, and
+latency separately.
 
 Run the same destructive-but-self-cleaning probe against an authorized test
 endpoint with:
