@@ -11,7 +11,7 @@
     "sparql"
   ],
   "type": "module",
-  "private": true,
+  "private": false,
   "sideEffects": false,
   "repository": {
     "type": "git",
