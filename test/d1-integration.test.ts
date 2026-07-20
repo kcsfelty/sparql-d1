@@ -44,8 +44,47 @@ describe('workerd D1 integration', () => {
         factory.literal('D1'),
       ),
     ]);
-    const source = new D1QuadSource(db);
+    const observations: Array<Record<string, unknown> | undefined> = [];
+    const source = new D1QuadSource(db, {
+      observe: (observation) => observations.push(observation.metadata),
+    });
     await expect(source.countQuads(subject)).resolves.toBe(1);
     await expect(collect(source.match(subject))).resolves.toHaveLength(1);
+    expect(observations).toHaveLength(2);
+    expect(
+      observations.every((metadata) => metadata?.rows_read !== undefined),
+    ).toBe(true);
+  });
+
+  it('serializes concurrent duplicate writes without violating set semantics', async () => {
+    const quad = factory.quad(
+      factory.namedNode('https://example.test/concurrent'),
+      factory.namedNode('https://example.test/value'),
+      factory.literal('once'),
+    );
+
+    const changes = await Promise.all(
+      Array.from({ length: 8 }, () => insertQuads(db, [quad])),
+    );
+    expect(changes.reduce((total, value) => total + value, 0)).toBe(1);
+    await expect(new D1QuadSource(db).countQuads(quad.subject)).resolves.toBe(
+      1,
+    );
+  });
+
+  it('rolls back every statement when a D1 batch fails', async () => {
+    await expect(
+      db.batch([
+        db.prepare('CREATE TABLE rollback_probe (id INTEGER PRIMARY KEY)'),
+        db.prepare('INSERT INTO table_that_does_not_exist VALUES (1)'),
+      ]),
+    ).rejects.toThrow();
+
+    const result = await db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'rollback_probe'",
+      )
+      .all<{ count: number }>();
+    expect(result.results[0]?.count).toBe(0);
   });
 });

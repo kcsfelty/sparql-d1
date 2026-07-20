@@ -1,6 +1,7 @@
 import { QueryEngine } from '@comunica/query-sparql';
 import type * as RDF from '@rdfjs/types';
 import { D1QuadSource, D1QuadStore } from './d1-source.js';
+import type { QueryObservation } from './d1-source.js';
 import type { D1DatabaseLike } from './d1-types.js';
 
 const QUERY_RESULT_MEDIA_TYPES = new Set([
@@ -53,6 +54,7 @@ export interface SparqlHandlerOptions {
   timeoutMs?: number;
   exposeErrors?: boolean;
   observe?: (observation: SparqlRequestObservation) => void;
+  observeD1?: (observation: QueryObservation) => void;
 }
 
 interface Limits {
@@ -75,9 +77,10 @@ class HttpError extends Error {
 export function createSparqlHandler(options: SparqlHandlerOptions) {
   const engine = options.engine ?? new QueryEngine();
   const readOnly = options.readOnly ?? true;
+  const sourceOptions = options.observeD1 ? { observe: options.observeD1 } : {};
   const source = readOnly
-    ? new D1QuadSource(options.db)
-    : new D1QuadStore(options.db);
+    ? new D1QuadSource(options.db, sourceOptions)
+    : new D1QuadStore(options.db, sourceOptions);
   const allowService = options.allowService ?? false;
   const exposeErrors = options.exposeErrors ?? false;
   const limits: Limits = {

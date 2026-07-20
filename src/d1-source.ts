@@ -19,6 +19,9 @@ const POSITION_COLUMNS = [
   'graph_key',
 ] as const;
 
+/** Leaves headroom below D1's 2 MB maximum bound string size. */
+export const MAX_ATOMIC_WRITE_BYTES = 1_900_000;
+
 interface QuadRow {
   subject_json: string;
   predicate_json: string;
@@ -163,42 +166,51 @@ export async function insertQuads(
   db: D1DatabaseLike,
   quads: Iterable<RDF.Quad>,
 ): Promise<number> {
-  const statements = [...quads].map((quad) => {
+  const rows = [...quads].map((quad) => {
     const subject = encodeTerm(quad.subject);
     const predicate = encodeTerm(quad.predicate);
     const object = encodeTerm(quad.object);
     const graph = encodeTerm(quad.graph);
-    return db
-      .prepare(
-        `INSERT INTO rdf_quads (
+    return {
+      subjectKey: subject.key,
+      subjectJson: subject.json,
+      predicateKey: predicate.key,
+      predicateJson: predicate.json,
+      objectKey: object.key,
+      objectJson: object.json,
+      graphKey: graph.key,
+      graphJson: graph.json,
+    };
+  });
+
+  if (!rows.length) {
+    return 0;
+  }
+  const payload = atomicPayload(rows);
+  const result = await db
+    .prepare(
+      `INSERT INTO rdf_quads (
         subject_key, subject_json,
         predicate_key, predicate_json,
         object_key, object_json,
         graph_key, graph_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(subject_key, predicate_key, object_key, graph_key) DO NOTHING`,
       )
-      .bind(
-        subject.key,
-        subject.json,
-        predicate.key,
-        predicate.json,
-        object.key,
-        object.json,
-        graph.key,
-        graph.json,
-      );
-  });
-
-  if (!statements.length) {
-    return 0;
-  }
-
-  const results = await db.batch(statements);
-  return results.reduce(
-    (total, result) => total + Number(result.meta?.changes ?? 0),
-    0,
-  );
+      SELECT
+        json_extract(value, '$.subjectKey'),
+        json_extract(value, '$.subjectJson'),
+        json_extract(value, '$.predicateKey'),
+        json_extract(value, '$.predicateJson'),
+        json_extract(value, '$.objectKey'),
+        json_extract(value, '$.objectJson'),
+        json_extract(value, '$.graphKey'),
+        json_extract(value, '$.graphJson')
+      FROM json_each(?)
+      WHERE true
+      ON CONFLICT(subject_key, predicate_key, object_key, graph_key) DO NOTHING`,
+    )
+    .bind(payload)
+    .run();
+  return Number(result.meta?.changes ?? 0);
 }
 
 export async function deleteMatchingQuads(
@@ -221,19 +233,41 @@ export async function deleteQuads(
   db: D1DatabaseLike,
   quads: Iterable<RDF.Quad>,
 ): Promise<number> {
-  const statements = [...quads].map((quad) => {
-    const terms = [quad.subject, quad.predicate, quad.object, quad.graph];
-    const { clause, values } = buildWhere(terms);
-    return db.prepare(`DELETE FROM rdf_quads${clause}`).bind(...values);
+  const rows = [...quads].map((quad) => {
+    return {
+      subjectKey: encodeTerm(quad.subject).key,
+      predicateKey: encodeTerm(quad.predicate).key,
+      objectKey: encodeTerm(quad.object).key,
+      graphKey: encodeTerm(quad.graph).key,
+    };
   });
-  if (!statements.length) {
+  if (!rows.length) {
     return 0;
   }
-  const results = await db.batch(statements);
-  return results.reduce(
-    (total, result) => total + Number(result.meta?.changes ?? 0),
-    0,
-  );
+  const result = await db
+    .prepare(
+      `DELETE FROM rdf_quads
+      WHERE EXISTS (
+        SELECT 1 FROM json_each(?) AS input
+        WHERE subject_key = json_extract(input.value, '$.subjectKey')
+          AND predicate_key = json_extract(input.value, '$.predicateKey')
+          AND object_key = json_extract(input.value, '$.objectKey')
+          AND graph_key = json_extract(input.value, '$.graphKey')
+      )`,
+    )
+    .bind(atomicPayload(rows))
+    .run();
+  return Number(result.meta?.changes ?? 0);
+}
+
+function atomicPayload(value: unknown): string {
+  const payload = JSON.stringify(value);
+  if (new TextEncoder().encode(payload).byteLength > MAX_ATOMIC_WRITE_BYTES) {
+    throw new RangeError(
+      `Atomic RDF write exceeds ${MAX_ATOMIC_WRITE_BYTES} bytes; split it at the application boundary`,
+    );
+  }
+  return payload;
 }
 
 export class D1QuadStore extends D1QuadSource implements RDF.Store {

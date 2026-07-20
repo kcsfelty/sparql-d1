@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   D1QuadSource,
   D1QuadStore,
+  MAX_ATOMIC_WRITE_BYTES,
   deleteMatchingQuads,
   insertQuads,
 } from '../src/d1-source.js';
@@ -92,6 +93,19 @@ describe('D1QuadSource', () => {
   it('deduplicates identical quads', async () => {
     await insertQuads(db, [quads[0]!]);
     await expect(source.countQuads()).resolves.toBe(4);
+  });
+
+  it('rejects an atomic write before it reaches D1 when its payload exceeds the binding limit', async () => {
+    const oversized = factory.quad(
+      ex('large'),
+      ex('value'),
+      factory.literal('x'.repeat(MAX_ATOMIC_WRITE_BYTES)),
+    );
+
+    await expect(insertQuads(db, [oversized])).rejects.toThrow(
+      /split it at the application boundary/,
+    );
+    await expect(source.countQuads(oversized.subject)).resolves.toBe(0);
   });
 
   it('deletes only matching quads', async () => {

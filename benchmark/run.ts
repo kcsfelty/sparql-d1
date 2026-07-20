@@ -19,11 +19,23 @@ const quads = Array.from({ length: 5_000 }, (_, index) =>
       : ex(`person-${(index + 1) % 1_000}`),
   ),
 );
-await insertQuads(database, quads);
+for (let offset = 0; offset < quads.length; offset += 1_000) {
+  await insertQuads(database, quads.slice(offset, offset + 1_000));
+}
 
 let calls = 0;
-const source = new D1QuadSource(database, { observe: () => (calls += 1) });
+let rowsRead = 0;
+let returnedRows = 0;
+let peakHeapBytes = process.memoryUsage().heapUsed;
+const source = new D1QuadSource(database, {
+  observe(observation) {
+    calls += 1;
+    rowsRead += Number(observation.metadata?.rows_read ?? 0);
+    returnedRows += observation.returnedRows;
+  },
+});
 const durations: number[] = [];
+const cpuStarted = process.cpuUsage();
 
 for (let iteration = 0; iteration < 30; iteration += 1) {
   const started = performance.now();
@@ -34,7 +46,10 @@ for (let iteration = 0; iteration < 30; iteration += 1) {
     stream.on('error', reject);
   });
   durations.push(performance.now() - started);
+  peakHeapBytes = Math.max(peakHeapBytes, process.memoryUsage().heapUsed);
 }
+
+const cpu = process.cpuUsage(cpuStarted);
 
 durations.sort((left, right) => left - right);
 const percentile = (value: number) =>
@@ -47,6 +62,10 @@ console.log(
       datasetQuads: quads.length,
       iterations: durations.length,
       sourceCalls: calls,
+      rowsRead,
+      returnedRows,
+      cpuMicroseconds: cpu.user + cpu.system,
+      peakHeapBytes,
       latencyMs: {
         p50: Number(percentile(0.5).toFixed(3)),
         p95: Number(percentile(0.95).toFixed(3)),

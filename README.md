@@ -21,6 +21,8 @@ triplestore.
   telemetry vendor.
 - Differential tests against an in-memory RDF source and integration tests
   against workerd's D1 implementation.
+- A CI-gated W3C manifest runner with 490/490 applicable SPARQL 1.1 cases
+  passing; exclusions are documented rather than hidden.
 
 ## Install
 
@@ -96,12 +98,18 @@ before exposing an endpoint publicly.
 ```sh
 npm ci
 npm run check
+npm run conformance
 npm run benchmark
 ```
 
 `npm run check` formats, lints, type-checks, executes coverage and D1
 integration tests, builds the package, bundles a Cloudflare Worker, and
 inspects the npm artifact.
+
+RDF writes use a single JSON-backed SQLite statement, keeping an update atomic
+and avoiding one D1 subrequest per quad. A single atomic payload is capped at
+1.9 MB to leave headroom below D1's 2 MB bound-value limit; larger imports must
+be split deliberately by the host application.
 
 ## Current limitations
 
@@ -113,6 +121,9 @@ inspects the npm artifact.
   from arbitrary relational application tables.
 - Entailment regimes and the Graph Store HTTP Protocol are out of scope for the
   initial release.
+- The full Comunica engine produces a roughly 5.8 MB uncompressed Worker bundle
+  in the current dry run. Deployment plan and startup/CPU budgets must be
+  checked against the target account before a public availability promise.
 
 ## License
 

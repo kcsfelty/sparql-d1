@@ -27,8 +27,10 @@ triple terms. The schema rejects duplicate quads.
 ## Update model
 
 `D1QuadStore` implements the RDF/JS Store interface. Each insert or delete
-stream is accumulated and committed through one D1 batch, so that an error
-rolls back the operation. Read-only mode remains the endpoint default.
+stream is accumulated and committed through one atomic SQL statement backed by
+SQLite JSON1. This avoids one D1 call per quad and prevents partial writes.
+Schema migrations use D1's transactional `batch()` operation. Read-only mode
+remains the endpoint default.
 
 ## Optimization boundary
 

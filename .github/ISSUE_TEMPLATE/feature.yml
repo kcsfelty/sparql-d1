@@ -1,0 +1,17 @@
+name: Feature request
+description: Propose a scoped enhancement
+title: '[Feature]: '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and compatibility impact
+    validations:
+      required: true

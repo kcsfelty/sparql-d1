@@ -74,6 +74,9 @@ describe('Comunica differential behavior', () => {
       UNION
       { ?person <https://example.test/name> "Bob" }
     }`,
+    `SELECT ?graph ?person WHERE {
+      GRAPH ?graph { ?person <https://example.test/name> "Carol" }
+    }`,
   ];
 
   it.each(queries)('matches the in-memory reference for %#', async (query) => {

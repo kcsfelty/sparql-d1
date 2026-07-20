@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a reproducible defect
+title: '[Bug]: '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities here; follow SECURITY.md.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the query, schema version, package version, and smallest dataset that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime versions
+      description: Node, Wrangler/workerd, Comunica, and deployment platform versions.
+    validations:
+      required: true

@@ -34,10 +34,13 @@ class MemoryStatement implements D1PreparedStatementLike {
   }
 
   async all<T = Record<string, unknown>>(): Promise<D1ResultLike<T>> {
+    const results = this.#database
+      .prepare(this.#sql)
+      .all(...this.#values) as T[];
     return {
-      results: this.#database.prepare(this.#sql).all(...this.#values) as T[],
+      results,
       success: true,
-      meta: { changes: 0 },
+      meta: { changes: 0, rows_read: results.length },
     };
   }
 

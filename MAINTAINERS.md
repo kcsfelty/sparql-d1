@@ -1,9 +1,10 @@
 # Maintainers
 
-The initial GitHub owner and final maintainer contacts will be recorded when
-the private repository is created. This placeholder intentionally avoids
-publishing personal contact information before the owner selects the release
-identity.
+- [@kcsfelty](https://github.com/kcsfelty) — repository owner, releases,
+  security triage, schema compatibility, and final merge authority.
 
-Before open sourcing, replace this text with GitHub handles, responsibilities,
-and at least one private security contact.
+Security reports must use the private GitHub Security Advisory flow described
+in `SECURITY.md`, not public issues or personal contact details.
+
+Before opening the repository, add a second reviewer or document the explicit
+single-maintainer bus-factor risk in the first public release notes.
