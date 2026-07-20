@@ -113,7 +113,7 @@ describe('D1QuadSource', () => {
     await expect(source.countQuads()).resolves.toBe(2);
   });
 
-  it('implements transactional RDF/JS Store operations', async () => {
+  it('implements atomic RDF/JS Store operations', async () => {
     const store = new D1QuadStore(db);
     const added = factory.quad(ex('dave'), ex('name'), factory.literal('Dave'));
     await completed(store.import(fromArray([added])));

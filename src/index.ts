@@ -16,6 +16,8 @@ export { decodeTerm, encodeTerm } from './term-codec.js';
 export type { StoredTerm } from './term-codec.js';
 export { allowServiceUrls, createSparqlHandler } from './endpoint.js';
 export type {
+  D1SourceFactory,
+  D1SourceFactoryOptions,
   ServicePolicy,
   SparqlHandlerOptions,
   SparqlRequestObservation,

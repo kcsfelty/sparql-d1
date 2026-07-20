@@ -35,7 +35,7 @@ describe('workerd D1 integration', () => {
 
   afterAll(async () => miniflare.dispose());
 
-  it('executes schema, transactional writes, and pattern reads through D1', async () => {
+  it('executes schema, atomic writes, and pattern reads through D1', async () => {
     const subject = factory.namedNode('https://example.test/real-d1');
     await insertQuads(db, [
       factory.quad(

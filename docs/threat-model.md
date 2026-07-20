@@ -34,3 +34,13 @@ limits, per-principal authorization, logging, and conservative Worker limits.
 Enabling `SERVICE` requires a destination policy. The supplied
 `allowServiceUrls()` helper performs exact canonical matching; dynamic targets,
 embedded credentials, and non-HTTP(S) schemes are rejected independently.
+Comunica receives a policy-wrapped fetch transport that rechecks every outbound
+URL and rejects redirects, closing redirect-based SSRF bypasses. DNS and the
+behavior of an explicitly trusted service remain deployment trust decisions.
+
+Writable endpoints require `readOnly: false` and stronger host authorization.
+Updates are never accepted through GET or a query media type, avoiding a
+state-changing surface that link traversal or prefetching could invoke. Each
+complete RDF/JS write stream is one atomic D1 statement; D1 does not expose a
+transaction spanning arbitrary Comunica callbacks, so hosts should not present
+multi-operation requests as a broader ACID transaction guarantee.

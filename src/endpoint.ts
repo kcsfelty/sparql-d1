@@ -5,20 +5,20 @@ import { D1QuadSource, D1QuadStore } from './d1-source.js';
 import type { QueryObservation } from './d1-source.js';
 import type { D1DatabaseLike } from './d1-types.js';
 
-const QUERY_RESULT_MEDIA_TYPES = new Set([
+const QUERY_RESULT_MEDIA_TYPES = [
   'application/sparql-results+json',
   'application/sparql-results+xml',
   'text/csv',
   'text/tab-separated-values',
-]);
+] as const;
 
-const RDF_MEDIA_TYPES = new Set([
+const RDF_MEDIA_TYPES = [
   'text/turtle',
   'application/n-triples',
   'application/n-quads',
   'application/trig',
   'application/ld+json',
-]);
+] as const;
 
 const UPDATE_OPERATIONS = new Set([
   'add',
@@ -45,8 +45,19 @@ export type ServicePolicy = (
   request: Request,
 ) => boolean | Promise<boolean>;
 
+export interface D1SourceFactoryOptions {
+  readOnly: boolean;
+  observe?: (observation: QueryObservation) => void;
+}
+
+export type D1SourceFactory = (
+  db: D1DatabaseLike,
+  options: D1SourceFactoryOptions,
+) => RDF.Source;
+
 export interface SparqlHandlerOptions {
   db: D1DatabaseLike;
+  sourceFactory?: D1SourceFactory;
   engine?: QueryEngine;
   authenticate?: (
     request: Request,
@@ -56,6 +67,7 @@ export interface SparqlHandlerOptions {
   ) => Response | null | undefined | Promise<Response | null | undefined>;
   readOnly?: boolean;
   servicePolicy?: ServicePolicy;
+  serviceFetch?: typeof globalThis.fetch;
   maxQueryBytes?: number;
   maxResultBytes?: number;
   maxAlgebraDepth?: number;
@@ -93,10 +105,15 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
     return defaultEngine;
   };
   const readOnly = options.readOnly ?? true;
-  const sourceOptions = options.observeD1 ? { observe: options.observeD1 } : {};
-  const source = readOnly
-    ? new D1QuadSource(options.db, sourceOptions)
-    : new D1QuadStore(options.db, sourceOptions);
+  const sourceOptions = {
+    readOnly,
+    ...(options.observeD1 ? { observe: options.observeD1 } : {}),
+  };
+  const source = options.sourceFactory
+    ? options.sourceFactory(options.db, sourceOptions)
+    : readOnly
+      ? new D1QuadSource(options.db, sourceOptions)
+      : new D1QuadStore(options.db, sourceOptions);
   const exposeErrors = options.exposeErrors ?? false;
   const limits: Limits = {
     maxQueryBytes: options.maxQueryBytes ?? 16 * 1024,
@@ -127,7 +144,7 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         throw new HttpError(401, 'Unauthorized');
       }
 
-      const query = await extractQuery(request, readOnly);
+      const { query, operation } = await extractQuery(request, readOnly);
       queryBytes = new TextEncoder().encode(query).byteLength;
       if (queryBytes > limits.maxQueryBytes) {
         throw new HttpError(
@@ -150,6 +167,18 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
       if (analysis.depth > limits.maxAlgebraDepth) {
         throw new HttpError(422, 'SPARQL query is nested too deeply');
       }
+      const isUpdate = [...analysis.types].some((type) =>
+        UPDATE_OPERATIONS.has(type),
+      );
+      if (operation === 'query' && isUpdate) {
+        throw new HttpError(
+          400,
+          'SPARQL Update requires the update POST operation',
+        );
+      }
+      if (operation === 'update' && !isUpdate) {
+        throw new HttpError(400, 'SPARQL query requires the query operation');
+      }
       if (analysis.types.has('service')) {
         await authorizeServices(
           analysis.serviceTargets,
@@ -157,16 +186,25 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
           request,
         );
       }
-      if (
-        readOnly &&
-        [...analysis.types].some((type) => UPDATE_OPERATIONS.has(type))
-      ) {
+      if (readOnly && isUpdate) {
         throw new HttpError(403, 'SPARQL Update is disabled');
       }
 
       const engine = await getEngine();
       const deadline = performance.now() + limits.timeoutMs;
-      const queryContext = { ...context, httpAbortSignal: request.signal };
+      const queryContext = {
+        ...context,
+        httpAbortSignal: request.signal,
+        ...(options.servicePolicy
+          ? {
+              fetch: policyFetch(
+                options.servicePolicy,
+                request,
+                options.serviceFetch ?? globalThis.fetch.bind(globalThis),
+              ),
+            }
+          : {}),
+      };
       const result = await withDeadline(
         engine.query(query, queryContext),
         deadline,
@@ -248,18 +286,18 @@ async function loadDefaultEngine(): Promise<QueryEngine> {
 async function extractQuery(
   request: Request,
   readOnly: boolean,
-): Promise<string> {
+): Promise<{ query: string; operation: 'query' | 'update' }> {
   if (request.method === 'GET') {
     const url = new URL(request.url);
     const update = url.searchParams.get('update');
-    if (update !== null && readOnly) {
-      throw new HttpError(403, 'SPARQL Update is disabled');
+    if (update !== null) {
+      throw new HttpError(405, 'SPARQL Update requires POST');
     }
-    const query = url.searchParams.get('query') ?? update;
+    const query = url.searchParams.get('query');
     if (!query) {
       throw new HttpError(400, 'Missing SPARQL query');
     }
-    return query;
+    return { query, operation: 'query' };
   }
 
   if (request.method !== 'POST') {
@@ -271,25 +309,30 @@ async function extractQuery(
     ?.split(';', 1)[0]
     ?.trim();
   if (contentType === 'application/sparql-query') {
-    return request.text();
+    return { query: await request.text(), operation: 'query' };
   }
   if (contentType === 'application/sparql-update') {
     if (readOnly) {
       throw new HttpError(403, 'SPARQL Update is disabled');
     }
-    return request.text();
+    return { query: await request.text(), operation: 'update' };
   }
   if (contentType === 'application/x-www-form-urlencoded') {
     const form = new URLSearchParams(await request.text());
+    const query = form.get('query');
     const update = form.get('update');
+    if (query !== null && update !== null) {
+      throw new HttpError(400, 'Choose either query or update, not both');
+    }
     if (update !== null && readOnly) {
       throw new HttpError(403, 'SPARQL Update is disabled');
     }
-    const query = form.get('query') ?? update;
-    if (!query) {
+    const operation = update !== null ? 'update' : 'query';
+    const text = query ?? update;
+    if (!text) {
       throw new HttpError(400, 'Missing SPARQL query');
     }
-    return query;
+    return { query: text, operation };
   }
   throw new HttpError(415, 'Unsupported SPARQL request content type');
 }
@@ -346,24 +389,42 @@ async function authorizeServices(
     throw new HttpError(403, 'Federated SERVICE clauses are disabled');
   }
   for (const target of targets) {
-    let url: URL;
-    try {
-      if (!target) {
-        throw new Error('Dynamic SERVICE target');
-      }
-      url = new URL(target);
-    } catch {
+    if (!target) {
       throw new HttpError(403, 'Dynamic SERVICE targets are not allowed');
     }
-    if (
-      !['http:', 'https:'].includes(url.protocol) ||
-      url.username ||
-      url.password ||
-      !(await policy(url, request))
-    ) {
-      throw new HttpError(403, 'Federated SERVICE target is not allowed');
-    }
+    await authorizeServiceTarget(new URL(target), policy, request);
   }
+}
+
+async function authorizeServiceTarget(
+  url: URL,
+  policy: ServicePolicy,
+  request: Request,
+): Promise<void> {
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    !(await policy(url, request))
+  ) {
+    throw new HttpError(403, 'Federated SERVICE target is not allowed');
+  }
+}
+
+function policyFetch(
+  policy: ServicePolicy,
+  request: Request,
+  transport: typeof globalThis.fetch,
+): typeof globalThis.fetch {
+  return async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    await authorizeServiceTarget(url, policy, request);
+    const response = await transport(input, { ...init, redirect: 'manual' });
+    if (response.status >= 300 && response.status < 400) {
+      throw new HttpError(403, 'Federated SERVICE redirects are disabled');
+    }
+    return response;
+  };
 }
 
 export function allowServiceUrls(urls: Iterable<string | URL>): ServicePolicy {
@@ -382,44 +443,85 @@ function negotiateMediaType(
     resultType === 'quads' ? 'text/turtle' : 'application/sparql-results+json';
   const requested = parseAccept(accept);
 
-  if (!requested.length || requested.some((item) => item.mediaType === '*/*')) {
+  if (!accept?.trim()) {
     if (available.has(fallback)) {
       return fallback;
     }
   }
 
-  for (const item of requested) {
-    if (
-      item.quality > 0 &&
-      allowed.has(item.mediaType) &&
-      available.has(item.mediaType)
-    ) {
-      return item.mediaType;
-    }
-  }
+  const candidates = allowed
+    .filter((mediaType) => available.has(mediaType))
+    .flatMap((mediaType, serverPreference) => {
+      const range = requested
+        .filter((item) => mediaRangeMatches(item.mediaType, mediaType))
+        .sort(
+          (left, right) =>
+            right.specificity - left.specificity || left.order - right.order,
+        )[0];
+      return range && range.quality > 0
+        ? [
+            {
+              mediaType,
+              quality: range.quality,
+              specificity: range.specificity,
+              order: range.order,
+              serverPreference,
+            },
+          ]
+        : [];
+    })
+    .sort(
+      (left, right) =>
+        right.quality - left.quality ||
+        right.specificity - left.specificity ||
+        left.order - right.order ||
+        left.serverPreference - right.serverPreference,
+    );
+  if (candidates[0]) return candidates[0].mediaType;
   throw new HttpError(406, 'No acceptable SPARQL result format is available');
 }
 
-function parseAccept(
-  value: string | null,
-): Array<{ mediaType: string; quality: number }> {
+function parseAccept(value: string | null): Array<{
+  mediaType: string;
+  quality: number;
+  specificity: number;
+  order: number;
+}> {
   if (!value) {
     return [];
   }
   return value
     .split(',')
-    .map((item) => {
+    .map((item, order) => {
       const [mediaType = '', ...parameters] = item.trim().split(';');
       const q = parameters.find((parameter) =>
         parameter.trim().startsWith('q='),
       );
+      const parsedQuality = q ? Number(q.trim().slice(2)) : 1;
+      const normalized = mediaType.trim().toLowerCase();
       return {
-        mediaType: mediaType.trim().toLowerCase(),
-        quality: q ? Number(q.trim().slice(2)) : 1,
+        mediaType: normalized,
+        quality:
+          Number.isFinite(parsedQuality) &&
+          parsedQuality >= 0 &&
+          parsedQuality <= 1
+            ? parsedQuality
+            : 0,
+        specificity:
+          normalized === '*/*' ? 0 : normalized.endsWith('/*') ? 1 : 2,
+        order,
       };
     })
-    .filter((item) => item.mediaType)
-    .sort((left, right) => right.quality - left.quality);
+    .filter((item) => /^(?:\*|[^/\s]+)\/(?:\*|[^/\s]+)$/u.test(item.mediaType));
+}
+
+function mediaRangeMatches(range: string, mediaType: string): boolean {
+  const [rangeType, rangeSubtype] = range.split('/');
+  const [type, subtype] = mediaType.split('/');
+  return (
+    (rangeType === '*' || rangeType === type) &&
+    (rangeSubtype === '*' || rangeSubtype === subtype)
+  );
 }
 
 function toWebStream(

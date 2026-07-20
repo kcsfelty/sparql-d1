@@ -10,3 +10,7 @@ node_modules/
 .rdf-test-cache/
 conformance-earl.ttl
 conformance/*.ttl
+benchmark*.json
+*.sbom.json
+sbom*.json
+SHA256SUMS

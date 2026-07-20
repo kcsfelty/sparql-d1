@@ -2,8 +2,29 @@
   "name": "sparql-d1",
   "version": "0.0.0",
   "description": "A Comunica-compatible RDF/JS source backed by Cloudflare D1.",
+  "author": "kcsfelty",
+  "keywords": [
+    "cloudflare-d1",
+    "comunica",
+    "rdf",
+    "rdfjs",
+    "sparql"
+  ],
   "type": "module",
   "private": true,
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kcsfelty/sparql-d1.git"
+  },
+  "homepage": "https://github.com/kcsfelty/sparql-d1#readme",
+  "bugs": {
+    "url": "https://github.com/kcsfelty/sparql-d1/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -31,17 +52,21 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "licenses:check": "license-checker-rseidelsohn --production --summary --onlyAllow \"MIT;ISC;BSD-2-Clause;Apache-2.0;BSD-3-Clause;BlueOak-1.0.0;FreeBSD;(WTFPL OR MIT);UNLICENSED\"",
+    "prepack": "npm run build",
+    "release:check": "node scripts/release-check.mjs",
     "test": "vitest run",
     "test:deployed": "node scripts/deployed-e2e.mjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run",
     "benchmark": "tsx benchmark/run.ts",
+    "benchmark:check": "npm run --silent benchmark > benchmark.json && node scripts/validate-benchmark.mjs benchmark.json",
     "worker:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
   },
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "npm@11.9.0",
   "dependencies": {
     "@comunica/query-sparql": "^5.3.0",
     "@rdfjs/types": "^2.0.1",

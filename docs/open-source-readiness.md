@@ -16,6 +16,10 @@ This repository remains private and intentionally uses version `0.0.0` with
 - `npm audit` reports zero known vulnerabilities, the production dependency
   license allowlist passes, and Gitleaks 8.30.1 finds no secrets in history.
 - GitHub Actions dependencies are pinned to immutable commit SHAs.
+- Package metadata names the exact source repository, public access policy,
+  and provenance setting; tagged releases verify SemVer/changelog alignment,
+  generate an SBOM and checksums, attest all artifacts, and publish only after
+  the repository becomes public.
 - GitHub vulnerability alerts and automated security fixes are enabled.
 - Repository text contains no local filesystem paths or private email
   addresses.
@@ -31,9 +35,10 @@ This repository remains private and intentionally uses version `0.0.0` with
 - [ ] Enable main-branch protection or a ruleset. GitHub currently returns 403
       for branch protection on this private repository/account plan.
 - [ ] Have a second developer follow the Codex Sites example from a fresh
-      project and record any documentation corrections.
+      project using `docs/integration-validation.md` and record any corrections.
 - [ ] Choose `0.1.0`, remove `private: true`, confirm npm ownership and package
-      metadata, and enable the documented provenance-bearing publish step.
+      trusted-publisher configuration. The provenance-bearing publish step is
+      already gated on public repository visibility.
 - [ ] Review the initial public issue/discussion policy and add a second
       maintainer or explicitly accept the current bus-factor risk.
 

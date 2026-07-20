@@ -39,3 +39,7 @@ Future implementations may group patterns or push joins, filters, ordering,
 and limits into SQL. Every optimized path must be switchable and pass the same
 differential suite as the reference source. Observable SPARQL multiset and
 graph semantics are the compatibility boundary.
+
+The endpoint's `sourceFactory` option makes that switch explicit without
+forking protocol, authentication, result-serialization, or safety logic. The
+baseline remains the default and semantic oracle.

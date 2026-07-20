@@ -1,6 +1,6 @@
 import { DataFactory } from 'rdf-data-factory';
 import type { QueryEngine } from '@comunica/query-sparql/lib/QueryEngine.js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { allowServiceUrls, createSparqlHandler } from '../src/endpoint.js';
 import { D1QuadSource, insertQuads } from '../src/d1-source.js';
 import { initializeStore } from '../src/schema.js';
@@ -68,6 +68,68 @@ describe('SPARQL HTTP handler', () => {
     expect(await response.text()).toContain('https://example.test/alice');
   });
 
+  it.each([
+    'application/sparql-results+json',
+    'application/sparql-results+xml',
+    'text/csv',
+    'text/tab-separated-values',
+  ])('serializes bindings as %s', async (mediaType) => {
+    const query = encodeURIComponent(
+      'SELECT ?name WHERE { ?s <https://example.test/name> ?name }',
+    );
+    const response = await handle(
+      new Request(`https://site.test/api/sparql?query=${query}`, {
+        headers: { accept: mediaType },
+      }),
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get('content-type')).toContain(mediaType);
+    expect(await response.text()).toContain('Alice');
+  });
+
+  it.each([
+    'text/turtle',
+    'application/n-triples',
+    'application/n-quads',
+    'application/trig',
+    'application/ld+json',
+  ])('serializes RDF graphs as %s', async (mediaType) => {
+    const query = encodeURIComponent('CONSTRUCT WHERE { ?s ?p ?o }');
+    const response = await handle(
+      new Request(`https://site.test/api/sparql?query=${query}`, {
+        headers: { accept: mediaType },
+      }),
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get('content-type')).toContain(mediaType);
+    expect(await response.text()).toContain('https://example.test/alice');
+  });
+
+  it('honors media ranges, quality weights, and exact exclusions', async () => {
+    const query = encodeURIComponent(
+      'SELECT ?name WHERE { ?s <https://example.test/name> ?name }',
+    );
+    const weighted = await handle(
+      new Request(`https://site.test/api/sparql?query=${query}`, {
+        headers: {
+          accept: 'text/*;q=0.9, application/sparql-results+json;q=0.5',
+        },
+      }),
+    );
+    expect(weighted.headers.get('content-type')).toContain('text/csv');
+
+    const excluded = await handle(
+      new Request(`https://site.test/api/sparql?query=${query}`, {
+        headers: {
+          accept: 'application/*;q=0.8, application/sparql-results+json;q=0',
+        },
+      }),
+    );
+    expect(excluded.headers.get('content-type')).toContain(
+      'application/sparql-results+xml',
+    );
+  });
+
   it('is read-only by default', async () => {
     const response = await handle(
       new Request('https://site.test/api/sparql', {
@@ -79,7 +141,7 @@ describe('SPARQL HTTP handler', () => {
     expect(response.status).toBe(403);
   });
 
-  it('executes transactional updates only when explicitly enabled', async () => {
+  it('executes atomic update streams only when explicitly enabled', async () => {
     handle = createSparqlHandler({ db, readOnly: false, exposeErrors: true });
     const update = await handle(
       new Request('https://site.test/api/sparql', {
@@ -152,6 +214,42 @@ describe('SPARQL HTTP handler', () => {
     expect(
       await policy(new URL('https://allowed.example.evil/sparql'), request),
     ).toBe(false);
+  });
+
+  it('reauthorizes outbound SERVICE fetches and rejects redirects', async () => {
+    const transport = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: 'http://127.0.0.1/internal' },
+        }),
+    );
+    const engine = {
+      query: async (
+        _query: string,
+        context: { fetch?: typeof globalThis.fetch },
+      ) => {
+        await context.fetch?.('https://allowed.example/sparql');
+        throw new Error('redirect should have been rejected');
+      },
+    } as unknown as QueryEngine;
+    handle = createSparqlHandler({
+      db,
+      engine,
+      servicePolicy: allowServiceUrls(['https://allowed.example/sparql']),
+      serviceFetch: transport,
+    });
+    const query = encodeURIComponent(
+      'SELECT * WHERE { SERVICE <https://allowed.example/sparql> { ?s ?p ?o } }',
+    );
+    const response = await handle(
+      new Request(`https://site.test/api/sparql?query=${query}`),
+    );
+    expect(response.status).toBe(403);
+    expect(transport).toHaveBeenCalledWith(
+      'https://allowed.example/sparql',
+      expect.objectContaining({ redirect: 'manual' }),
+    );
   });
 
   it('enforces authentication hooks', async () => {
@@ -253,23 +351,51 @@ describe('SPARQL HTTP handler', () => {
     },
   );
 
-  it('rejects update query parameters in read-only mode', async () => {
+  it('rejects update query parameters because updates require POST', async () => {
     const update = encodeURIComponent('INSERT DATA { <x:s> <x:p> <x:o> }');
     const response = await handle(
       new Request(`https://site.test/api/sparql?update=${update}`),
     );
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(405);
   });
 
   it('rejects updates disguised with a query media type', async () => {
+    handle = createSparqlHandler({ db, readOnly: false });
     const response = await handle(
       new Request('https://site.test/api/sparql', {
         method: 'POST',
         headers: { 'content-type': 'application/sparql-query' },
-        body: 'INSERT DATA { <x:s> <x:p> <x:o> }',
+        body: 'INSERT DATA { <https://example.test/disguised> <x:p> <x:o> }',
       }),
     );
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(400);
+    await expect(
+      new D1QuadSource(db).countQuads(ex('disguised')),
+    ).resolves.toBe(0);
+  });
+
+  it('rejects queries disguised with an update media type', async () => {
+    handle = createSparqlHandler({ db, readOnly: false });
+    const response = await handle(
+      new Request('https://site.test/api/sparql', {
+        method: 'POST',
+        headers: { 'content-type': 'application/sparql-update' },
+        body: 'ASK {}',
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it('rejects ambiguous form operations', async () => {
+    handle = createSparqlHandler({ db, readOnly: false });
+    const response = await handle(
+      new Request('https://site.test/api/sparql', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ query: 'ASK {}', update: 'CLEAR ALL' }),
+      }),
+    );
+    expect(response.status).toBe(400);
   });
 
   it('enforces algebra operation and depth limits', async () => {
@@ -354,5 +480,28 @@ describe('SPARQL HTTP handler', () => {
       new Request('https://site.test/api/sparql?query=ASK%20%7B%7D'),
     );
     expect(observations).toMatchObject([{ status: 200 }]);
+  });
+
+  it('accepts a source factory as the optimization boundary', async () => {
+    let factoryCalls = 0;
+    handle = createSparqlHandler({
+      db,
+      sourceFactory(factoryDb, options) {
+        factoryCalls += 1;
+        expect(factoryDb).toBe(db);
+        expect(options.readOnly).toBe(true);
+        return new D1QuadSource(
+          factoryDb,
+          options.observe ? { observe: options.observe } : {},
+        );
+      },
+    });
+    const response = await handle(
+      new Request(
+        'https://site.test/api/sparql?query=ASK%20%7B%3Fs%20%3Fp%20%3Fo%7D',
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(factoryCalls).toBe(1);
   });
 });

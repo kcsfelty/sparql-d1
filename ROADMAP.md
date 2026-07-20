@@ -27,4 +27,8 @@
 - API and naming review
 - Complete dependency-license and intellectual-property audit
 - Public maintainer and security contacts
-- Version 1.0.0 release candidate and migration stability commitment
+- Version 0.1.0 release with provenance and explicit experimental API status
+
+## Stable release
+
+- Version 1.0.0 after production feedback and a migration stability commitment

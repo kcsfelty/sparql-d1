@@ -8,6 +8,7 @@ if (!npmCli) {
   throw new Error('consumer smoke must be run through npm');
 }
 const root = mkdtempSync(join(tmpdir(), 'sparql-d1-consumer-'));
+const sourcePackage = JSON.parse(readFileSync('package.json', 'utf8'));
 const packOutput = execFileSync(
   process.execPath,
   [npmCli, 'pack', '--json', '--pack-destination', root],
@@ -61,7 +62,10 @@ execFileSync(process.execPath, [join(root, 'smoke.mjs')], {
 const installed = JSON.parse(
   readFileSync(join(root, 'node_modules', 'sparql-d1', 'package.json'), 'utf8'),
 );
-if (installed.private !== true || installed.version !== '0.0.0') {
-  throw new Error('Packed private prerelease metadata changed unexpectedly');
+if (
+  installed.private !== sourcePackage.private ||
+  installed.version !== sourcePackage.version
+) {
+  throw new Error('Packed metadata differs from the source package');
 }
 console.log(`consumer smoke passed for ${installed.name}@${installed.version}`);

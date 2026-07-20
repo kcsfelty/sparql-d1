@@ -13,7 +13,7 @@ triplestore.
 - A lossless RDF/JS term codec, including named graphs and RDF 1.2 quoted
   triple terms.
 - A D1-backed RDF/JS `Source` with all 16 bound/unbound quad-pattern shapes.
-- An opt-in RDF/JS `Store` for transactional SPARQL Update operations.
+- An opt-in RDF/JS `Store` with atomic insert/delete streams for SPARQL Update.
 - A Worker-compatible SPARQL HTTP handler with result content negotiation.
 - Secure defaults: read-only operation, disabled `SERVICE`, bounded query
   shape, timeout, and serialized-result limits.
@@ -26,12 +26,19 @@ triplestore.
 
 ## Install
 
-The package is not published while the repository remains private. In a
-workspace or Git dependency:
+The package is not published while the repository remains private. Build a
+tarball from an authorized clean clone:
 
 ```sh
-npm install sparql-d1
+npm ci
+npm pack
+# Then, from the Sites project:
+npm install ./vendor/sparql-d1-0.0.0.tgz
 ```
+
+Do not install the Git repository directly: generated `dist` files are not
+committed. After the public release, installation will be `npm install
+sparql-d1`.
 
 Apply `migrations/0001_rdf_quads.sql` to the site's D1 database before serving
 queries.
@@ -104,7 +111,7 @@ behavior.
 npm ci
 npm run check
 npm run conformance
-npm run benchmark
+npm run benchmark:check
 ```
 
 `npm run check` formats, lints, type-checks, executes coverage and D1
@@ -113,6 +120,10 @@ inspects the npm artifact.
 
 The production Codex Sites and D1 acceptance record, including a reusable
 probe, is in [docs/deployed-e2e.md](docs/deployed-e2e.md).
+The independent clean-project procedure is in
+[docs/integration-validation.md](docs/integration-validation.md).
+The workerd D1 and Comunica performance baseline is in
+[docs/performance.md](docs/performance.md).
 
 RDF writes use a single JSON-backed SQLite statement, keeping an update atomic
 and avoiding one D1 subrequest per quad. A single atomic payload is capped at
