@@ -5,6 +5,8 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-20
+
 ### Added
 
 - Transaction-composable quad patch preparation for atomically batching RDF

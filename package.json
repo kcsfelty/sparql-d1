@@ -1,6 +1,6 @@
 {
   "name": "@gnolith/diamond",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "SPARQL ↔ D1: RDF querying and atomic storage for Cloudflare D1.",
   "author": "Gnolith contributors",
   "keywords": [
