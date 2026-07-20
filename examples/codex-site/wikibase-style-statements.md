@@ -8,7 +8,11 @@ Wikidata, or a Wikibase service.
 
 `buildWikibaseStyleEntityQuads()` is the domain mapping. The example deliberately
 uses a site-owned base IRI for entities, properties, statements, references, and
-special-value markers. `replaceWikibaseStyleEntity()` replaces the complete
+special-value markers. Statement and reference IRIs are entity-scoped, so the
+same local statement ID in two entities cannot merge their closures. Statement
+IDs must be unique within one entity document; reference IDs must be unique
+across that entity's statements. Empty or duplicate IDs are rejected before a
+patch is attempted. `replaceWikibaseStyleEntity()` replaces the complete
 entity-owned closure through `applyQuadPatch()`. Its revision quad is supplied
 as a transactional precondition, so two edits based on the same revision cannot
 both commit.
@@ -19,18 +23,29 @@ applications should validate property datatypes and command authorization before
 building the replacement document. Keep the public SPARQL endpoint read-only and
 expose editing through authenticated, application-owned commands.
 
-The module includes create, complete-entity replace/delete, statement replace,
-and rank-change commands. Statement and rank edits rebuild the complete entity
-closure so `wikibase:BestRank` and direct truthy triples are derived again in
-the same transaction. Creation assumes the application allocated a new entity
-identifier; later commands reject stale revisions with
-`QuadPatchConflictError`.
+The module includes create, complete-entity replace/delete, statement
+add/replace/delete, and rank-change commands. Every statement edit rebuilds the
+complete entity closure so `wikibase:BestRank` and direct truthy triples are
+derived again in the same transaction. Creation atomically forbids an existing
+site-owned entity marker, so repeating it throws `QuadPatchConflictError`
+instead of merging state. Later commands use the revision quad to reject stale
+edits with the same error.
 
 Authoritative facts are the entity-to-statement link, main value, qualifiers,
 references, and rank. Direct predicates under `prop/direct/` are a derived
 truthy projection calculated independently for each property: preferred
 statements win; otherwise normal statements are projected; deprecated-only
 values are omitted.
+
+Statement and reference resources are typed as `wikibase:Statement` and
+`wikibase:Reference`. This does not make the mapping a byte-compatible Wikibase
+RDF export. In particular, `somevalue` and `novalue` are stable site-owned named
+nodes linked through the relevant simple-value predicate and typed with the
+site-owned `schema/SomeValue` or `schema/NoValue` class. This explicit mapping
+is queryable and round-trippable for this application, but intentionally does
+not claim Wikibase's OWL-based special-value export semantics. No compatibility
+mode is provided without a concrete interoperability target and differential
+fixtures; that concern belongs in a separate adapter if it becomes necessary.
 
 Representative queries (using the base `https://site.example/rdf/`) are:
 
@@ -56,8 +71,8 @@ SELECT ?statement ?rank ?qualifier ?reference ?source ?page WHERE {
 SELECT ?some ?none WHERE {
   ?statement <https://site.example/rdf/prop/qualifier/P4> ?some;
     <https://site.example/rdf/prop/qualifier/P5> ?none.
-  FILTER(CONTAINS(STR(?some), "/special/somevalue/"))
-  FILTER(CONTAINS(STR(?none), "/special/novalue/"))
+  ?some a <https://site.example/rdf/schema/SomeValue>.
+  ?none a <https://site.example/rdf/schema/NoValue>.
 }
 
 # Multi-hop entity values
@@ -70,5 +85,7 @@ SELECT ?first ?second WHERE {
 
 The executable `npm run example:check` check applies a revision replacement,
 verifies best-rank recomputation and grouped reference values, exercises full
-and special values, rejects a stale second edit, and queries the result through
-the normal SPARQL HTTP handler without an external service.
+and special values, rejects duplicate identities and repeated creation, proves
+cross-entity ID isolation, exercises add/delete/rank lifecycle operations and
+deprecated-only rank behavior, rejects a stale edit, and queries through the
+normal SPARQL HTTP handler without an external service.

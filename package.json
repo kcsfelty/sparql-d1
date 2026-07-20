@@ -1,6 +1,6 @@
 {
   "name": "sparql-d1",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A Comunica-compatible RDF/JS source backed by Cloudflare D1.",
   "author": "kcsfelty",
   "keywords": [

@@ -229,4 +229,65 @@ describe('workerd D1 integration', () => {
       source.countQuads(entity, predicate, oldRevision.object),
     ).resolves.toBe(0);
   });
+
+  it('evaluates require-only patches transactionally in workerd D1', async () => {
+    const existing = factory.quad(
+      factory.namedNode('https://example.test/asserted'),
+      factory.namedNode('https://example.test/value'),
+      factory.literal('present'),
+    );
+    const missing = factory.quad(
+      factory.namedNode('https://example.test/asserted'),
+      factory.namedNode('https://example.test/value'),
+      factory.literal('missing'),
+    );
+    await insertQuads(db, [existing]);
+    await expect(applyQuadPatch(db, { require: [existing] })).resolves.toEqual({
+      deleted: 0,
+      inserted: 0,
+    });
+    await expect(
+      applyQuadPatch(db, { require: [missing] }),
+    ).rejects.toBeInstanceOf(QuadPatchConflictError);
+    await expect(applyQuadPatch(db, { forbid: [missing] })).resolves.toEqual({
+      deleted: 0,
+      inserted: 0,
+    });
+    await expect(
+      applyQuadPatch(db, { forbid: [existing] }),
+    ).rejects.toBeInstanceOf(QuadPatchConflictError);
+    const guards = await db
+      .prepare('SELECT COUNT(*) AS count FROM rdf_patch_guards')
+      .all<{ count: number }>();
+    expect(guards.results[0]?.count).toBe(0);
+  });
+
+  it('allows exactly one concurrent creation guarded by forbidden absence', async () => {
+    const entity = factory.namedNode('https://example.test/new-entity');
+    const marker = factory.quad(
+      entity,
+      factory.namedNode('https://example.test/type'),
+      factory.namedNode('https://example.test/Entity'),
+    );
+    const variants = ['a', 'b'].map((value) =>
+      factory.quad(
+        entity,
+        factory.namedNode('https://example.test/value'),
+        factory.literal(value),
+      ),
+    );
+    const outcomes = await Promise.allSettled(
+      variants.map((variant) =>
+        applyQuadPatch(db, { forbid: [marker], insert: [marker, variant] }),
+      ),
+    );
+    expect(
+      outcomes.filter(({ status }) => status === 'fulfilled'),
+    ).toHaveLength(1);
+    expect(
+      outcomes.filter(({ status }) => status === 'rejected'),
+    ).toMatchObject([{ reason: expect.any(QuadPatchConflictError) }]);
+    const source = new D1QuadSource(db);
+    await expect(source.countQuads(entity)).resolves.toBe(2);
+  });
 });

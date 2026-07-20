@@ -37,7 +37,9 @@ remains the endpoint default.
 `applyQuadPatch()` prepares exact deletions and idempotent insertions, checks
 their combined payload before issuing D1 work, and executes them in one D1
 batch. Optional required quads act as an optimistic precondition inside that
-transaction. This lets an application replace a complete domain-owned RDF
+transaction; optional forbidden quads provide an atomic absence precondition.
+All quad positions are recursively validated before the batch is prepared.
+This lets an application replace a complete domain-owned RDF
 closure while keeping its ontology and invariant logic outside the core store.
 
 When `pageSize` is set, `D1QuadSource` uses deterministic SPOG keyset pages.

@@ -23,11 +23,12 @@ Security and lifecycle options:
 | `serviceFetch`         | global   | Fetch-compatible federation transport, still wrapped by the policy.     |
 | `sourceFactory`        | baseline | Construct an alternative RDF/JS pattern source.                         |
 | `sourcePageSize`       | unset    | Enable deterministic keyset pages with this maximum page size.          |
-| `maxQueryBytes`        | 16 KiB   | Maximum UTF-8 query/update size.                                        |
+| `engine`               | Comunica | A QueryEngine or promise used once for lazy/custom engine acquisition.  |
+| `maxQueryBytes`        | 16 KiB   | GET query bytes or the complete encoded POST body size.                 |
 | `maxResultBytes`       | 5 MiB    | Maximum streamed serialized body size.                                  |
 | `maxAlgebraDepth`      | 40       | Maximum parsed algebra nesting depth.                                   |
 | `maxAlgebraOperations` | 250      | Maximum counted algebra operations.                                     |
-| `timeoutMs`            | 10,000   | Shared parse/query/serialization deadline.                              |
+| `timeoutMs`            | 10,000   | One body/parse/engine/query/serialization deadline.                     |
 | `exposeErrors`         | `false`  | Reveal unexpected internal error messages.                              |
 
 `observe` receives request-level status, duration, query bytes, result type,
@@ -48,6 +49,14 @@ Cancelling a response body stops its result iterator. D1 does not expose a
 per-statement cancellation API, so an already-issued D1 statement may still
 finish inside the platform.
 
+After rate limiting and authentication accept a request, one absolute deadline
+covers bounded POST reading, parsing, service authorization, engine acquisition,
+query/update setup, media-type discovery, serialization setup, and response
+streaming. Time spent in one phase reduces what remains for every later phase.
+SPARQL parsing is synchronous JavaScript and cannot be preempted while the event
+loop is blocked; the handler checks the deadline immediately afterward, and the
+byte limit remains the primary parser-input bound.
+
 The default engine is imported through Comunica's static engine entry point so
 the Node-only Components.js factory is not evaluated in Workers. A
 `servicePolicy` remains mandatory for every federated target.
@@ -63,6 +72,13 @@ ignored. Updates require POST with either
 `application/sparql-update` or exactly one form-encoded `update` field. Query
 and update media types are not interchangeable, even when writable mode is
 enabled; ambiguous or disguised operations receive HTTP 400.
+
+Supported POST bodies are consumed through a bounded stream reader. A valid
+oversized `Content-Length` is rejected before buffering, and missing, incorrect,
+or chunked lengths are still enforced while reading. The reader is cancelled
+when the limit is crossed. For form requests the limit applies to the entire
+encoded form body, including unrelated fields, rather than only the decoded
+`query` or `update` value.
 
 Remote SPARQL `LOAD` receives HTTP 403 even when `readOnly: false`. `LOAD`
 would turn a writable endpoint into a server-side network fetch surface, so
@@ -99,6 +115,9 @@ inserts before the cursor can be missed and changes after it can be observed.
 Extends the source with RDF/JS Store `import`, `remove`, `removeMatches`, and
 `deleteGraph`. A complete input stream is committed as one atomic JSON1-backed
 statement. The endpoint only constructs this Store when `readOnly: false`.
+If an input stream emits `error`, accumulated quads are discarded, no D1 write
+is issued, later input events are ignored, and the returned emitter has only
+the error terminal outcome.
 
 For deployments offering both general reads and administrative writes, prefer
 separate read-only and authenticated writable handlers. `authenticate`
@@ -109,19 +128,30 @@ protects the complete handler; authorization roles remain a host concern.
 - `insertQuads(db, quads)` inserts a set of quads and returns the D1 change count.
 - `deleteQuads(db, quads)` deletes exact quads.
 - `deleteMatchingQuads(db, s, p, o, g)` deletes a pattern.
-- `applyQuadPatch(db, { require?, delete?, insert? })` validates the aggregate
+- `applyQuadPatch(db, { require?, forbid?, delete?, insert? })` validates the aggregate
   payload, then performs exact deletion followed by idempotent insertion in one
   D1 transaction. It returns `{ deleted, inserted }`. If any `require` quad is
   absent at transaction start, neither side changes and the helper throws
   `QuadPatchConflictError`. Required quads are useful for optimistic revision
-  guards; an otherwise empty patch is a no-op rather than a precondition probe.
+  guards. A require-only patch is an atomic assertion: it returns the normal
+  no-op result when all required quads exist and throws on a missing quad.
+  Every `forbid` quad must be absent; forbid-only patches provide the inverse
+  assertion and use the same conflict error.
 
 Atomic write payloads are limited to 1.9 MB, leaving headroom below D1's 2 MB
 bound-value limit. Split larger imports at the application boundary.
-For a patch, the combined encoded `require`, `delete`, and `insert` payloads
+For a patch, the combined encoded `require`, `forbid`, `delete`, and `insert` payloads
 share that limit and are validated before D1 is touched. Apply migration
 `0002_drop_redundant_spog.sql` before using patch preconditions on an existing
 `0.1.x` store.
+
+All exact write paths validate RDF positions before preparing a statement or
+transaction. Subjects accept named nodes, blank nodes, and RDF 1.2 quoted
+triples; predicates must be named nodes; objects accept named nodes, blank
+nodes, literals, and quoted triples; graph names accept the default graph,
+named nodes, and blank nodes. Variables cannot be persisted. Quoted triples are
+validated recursively, cannot be cyclic, and must use a default-graph component.
+`removeMatches()` continues to treat variables as unbound pattern positions.
 
 ## Schema and codec
 

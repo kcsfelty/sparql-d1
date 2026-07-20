@@ -1,5 +1,6 @@
 import type * as RDF from '@rdfjs/types';
 import { fromArray } from 'asynciterator';
+import { EventEmitter } from 'node:events';
 import { DataFactory } from 'rdf-data-factory';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -9,6 +10,7 @@ import {
   QuadPatchConflictError,
   applyQuadPatch,
   deleteMatchingQuads,
+  deleteQuads,
   insertQuads,
 } from '../src/d1-source.js';
 import { initializeStore } from '../src/schema.js';
@@ -220,10 +222,18 @@ describe('D1QuadSource', () => {
       ex('source'),
       ex('reference'),
     );
+    const blankGraphQuad = factory.quad(
+      ex('blank-graph-subject'),
+      ex('value'),
+      factory.literal('blank graph'),
+      factory.blankNode('graph'),
+    );
 
     await expect(
-      applyQuadPatch(db, { insert: [namedGraphQuad, quotedTripleQuad] }),
-    ).resolves.toEqual({ deleted: 0, inserted: 2 });
+      applyQuadPatch(db, {
+        insert: [namedGraphQuad, quotedTripleQuad, blankGraphQuad],
+      }),
+    ).resolves.toEqual({ deleted: 0, inserted: 3 });
     await expect(
       source.countQuads(
         namedGraphQuad.subject,
@@ -241,8 +251,18 @@ describe('D1QuadSource', () => {
       ),
     ).resolves.toBe(1);
     await expect(
-      applyQuadPatch(db, { delete: [namedGraphQuad, quotedTripleQuad] }),
-    ).resolves.toEqual({ deleted: 2, inserted: 0 });
+      source.countQuads(
+        blankGraphQuad.subject,
+        blankGraphQuad.predicate,
+        blankGraphQuad.object,
+        blankGraphQuad.graph,
+      ),
+    ).resolves.toBe(1);
+    await expect(
+      applyQuadPatch(db, {
+        delete: [namedGraphQuad, quotedTripleQuad, blankGraphQuad],
+      }),
+    ).resolves.toEqual({ deleted: 3, inserted: 0 });
   });
 
   it('rejects stale patch preconditions without changing data', async () => {
@@ -273,6 +293,119 @@ describe('D1QuadSource', () => {
     await expect(
       source.countQuads(ex('entity'), revisionPredicate, factory.literal('2')),
     ).resolves.toBe(0);
+  });
+
+  it('evaluates require-only patches and removes their transaction guards', async () => {
+    await expect(applyQuadPatch(db, { require: [quads[0]!] })).resolves.toEqual(
+      { deleted: 0, inserted: 0 },
+    );
+    await expect(
+      applyQuadPatch(db, {
+        require: [factory.quad(ex('missing'), ex('p'), ex('o'))],
+      }),
+    ).rejects.toBeInstanceOf(QuadPatchConflictError);
+    const guards = await db
+      .prepare('SELECT COUNT(*) AS count FROM rdf_patch_guards')
+      .all<{ count: number }>();
+    expect(guards.results[0]?.count).toBe(0);
+  });
+
+  it('supports atomic forbidden-quad absence preconditions', async () => {
+    const missing = factory.quad(ex('unused'), ex('p'), ex('o'));
+    await expect(applyQuadPatch(db, { forbid: [missing] })).resolves.toEqual({
+      deleted: 0,
+      inserted: 0,
+    });
+    await expect(
+      applyQuadPatch(db, { forbid: [quads[0]!] }),
+    ).rejects.toBeInstanceOf(QuadPatchConflictError);
+    const guards = await db
+      .prepare('SELECT COUNT(*) AS count FROM rdf_patch_guards')
+      .all<{ count: number }>();
+    expect(guards.results[0]?.count).toBe(0);
+  });
+
+  it('rejects illegal RDF quad positions on every exact write path', async () => {
+    const variable = factory.variable('illegal');
+    const invalidQuoted = factory.quad(
+      ex('quoted-subject'),
+      variable as unknown as RDF.Quad_Predicate,
+      ex('quoted-object'),
+    );
+    const invalid = [
+      factory.quad(variable as unknown as RDF.Quad_Subject, ex('p'), ex('o')),
+      factory.quad(
+        factory.literal('subject') as unknown as RDF.Quad_Subject,
+        ex('p'),
+        ex('o'),
+      ),
+      factory.quad(
+        ex('s'),
+        factory.blankNode('predicate') as unknown as RDF.Quad_Predicate,
+        ex('o'),
+      ),
+      factory.quad(ex('s'), ex('p'), variable as unknown as RDF.Quad_Object),
+      factory.quad(
+        ex('s'),
+        ex('p'),
+        ex('o'),
+        factory.literal('graph') as unknown as RDF.Quad_Graph,
+      ),
+      factory.quad(
+        ex('s'),
+        ex('p'),
+        ex('o'),
+        variable as unknown as RDF.Quad_Graph,
+      ),
+      factory.quad(invalidQuoted, ex('annotation'), ex('value')),
+    ];
+
+    for (const quad of invalid) {
+      await expect(insertQuads(db, [quad])).rejects.toBeInstanceOf(TypeError);
+    }
+    await expect(deleteQuads(db, [invalid[0]!])).rejects.toBeInstanceOf(
+      TypeError,
+    );
+    await expect(
+      deleteMatchingQuads(
+        db,
+        factory.literal('subject') as unknown as RDF.Quad_Subject,
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      deleteMatchingQuads(
+        db,
+        null,
+        factory.blankNode('predicate') as unknown as RDF.Quad_Predicate,
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      deleteMatchingQuads(
+        db,
+        null,
+        null,
+        null,
+        factory.literal('graph') as unknown as RDF.Quad_Graph,
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      applyQuadPatch(db, { require: [invalid[1]!] }),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      applyQuadPatch(db, { delete: [quads[0]!], insert: [invalid[2]!] }),
+    ).rejects.toBeInstanceOf(TypeError);
+    const store = new D1QuadStore(db);
+    await expect(
+      completed(store.import(fromArray([invalid[3]!]))),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      completed(store.remove(fromArray([invalid[4]!]))),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(source.countQuads()).resolves.toBe(quads.length);
+    const guards = await db
+      .prepare('SELECT COUNT(*) AS count FROM rdf_patch_guards')
+      .all<{ count: number }>();
+    expect(guards.results[0]?.count).toBe(0);
   });
 
   it('rejects an oversized aggregate patch before deleting anything', async () => {
@@ -306,6 +439,51 @@ describe('D1QuadSource', () => {
     await completed(store.removeMatches(ex('alice'), ex('name')));
     await expect(store.countQuads(ex('alice'), ex('name'))).resolves.toBe(0);
   });
+
+  it.each(['import', 'remove'] as const)(
+    'does not %s accumulated quads after the input stream fails',
+    async (operation) => {
+      const target = factory.quad(
+        ex(`failed-${operation}`),
+        ex('value'),
+        factory.literal('unchanged'),
+      );
+      if (operation === 'remove') {
+        await insertQuads(db, [target]);
+      }
+      const input = new EventEmitter() as RDF.Stream<RDF.Quad>;
+      const output = new D1QuadStore(db)[operation](input);
+      let errors = 0;
+      let ends = 0;
+      const failed = new Promise<void>((resolve) => {
+        output.on('error', () => {
+          errors += 1;
+          resolve();
+        });
+        output.on('end', () => (ends += 1));
+      });
+
+      input.emit('data', target);
+      input.emit('error', new Error('injected stream failure'));
+      input.emit('end');
+      expect(() =>
+        input.emit('error', new Error('ignored later failure')),
+      ).not.toThrow();
+      await failed;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(errors).toBe(1);
+      expect(ends).toBe(0);
+      await expect(
+        source.countQuads(
+          target.subject,
+          target.predicate,
+          target.object,
+          target.graph,
+        ),
+      ).resolves.toBe(operation === 'remove' ? 1 : 0);
+    },
+  );
 
   it('deletes graphs addressed by IRI string or RDF term', async () => {
     const store = new D1QuadStore(db);

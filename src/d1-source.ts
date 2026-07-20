@@ -63,6 +63,8 @@ export interface D1QuadSourceOptions {
 export interface QuadPatch {
   /** Every required quad must exist at transaction start or nothing changes. */
   require?: Iterable<RDF.Quad>;
+  /** Every forbidden quad must be absent at transaction start or nothing changes. */
+  forbid?: Iterable<RDF.Quad>;
   delete?: Iterable<RDF.Quad>;
   insert?: Iterable<RDF.Quad>;
 }
@@ -322,6 +324,7 @@ export async function deleteMatchingQuads(
   graph?: RDF.Term | null,
 ): Promise<number> {
   const terms = [subject, predicate, object, graph].map(concreteTerm);
+  assertValidPattern(terms);
   const { clause, values } = buildWhere(terms);
   const result = await db
     .prepare(`DELETE FROM rdf_quads${clause}`)
@@ -351,19 +354,26 @@ export async function applyQuadPatch(
   patch: QuadPatch,
 ): Promise<QuadPatchResult> {
   const requireRows = encodeDeleteRows(patch.require ?? []);
+  const forbidRows = encodeDeleteRows(patch.forbid ?? []);
   const deleteRows = encodeDeleteRows(patch.delete ?? []);
   const insertRows = encodeInsertRows(patch.insert ?? []);
-  if (!deleteRows.length && !insertRows.length) {
+  if (
+    !requireRows.length &&
+    !forbidRows.length &&
+    !deleteRows.length &&
+    !insertRows.length
+  ) {
     return { deleted: 0, inserted: 0 };
   }
 
   const requirePayload = requireRows.length
     ? JSON.stringify(requireRows)
     : null;
+  const forbidPayload = forbidRows.length ? JSON.stringify(forbidRows) : null;
   const deletePayload = deleteRows.length ? JSON.stringify(deleteRows) : null;
   const insertPayload = insertRows.length ? JSON.stringify(insertRows) : null;
   assertAtomicPayloadSize(
-    [requirePayload, deletePayload, insertPayload].filter(
+    [requirePayload, forbidPayload, deletePayload, insertPayload].filter(
       (payload): payload is string => payload !== null,
     ),
   );
@@ -372,10 +382,13 @@ export async function applyQuadPatch(
   let guardResultIndex: number | undefined;
   let deleteResultIndex: number | undefined;
   let insertResultIndex: number | undefined;
-  const guardId = requirePayload ? crypto.randomUUID() : undefined;
-  if (requirePayload !== null && guardId !== undefined) {
+  const guardId =
+    requirePayload !== null || forbidPayload !== null
+      ? crypto.randomUUID()
+      : undefined;
+  if (guardId !== undefined) {
     guardResultIndex = statements.length;
-    statements.push(prepareGuard(db, guardId, requirePayload));
+    statements.push(prepareGuard(db, guardId, requirePayload, forbidPayload));
   }
   if (deletePayload !== null) {
     deleteResultIndex = statements.length;
@@ -414,6 +427,7 @@ export async function applyQuadPatch(
 
 function encodeInsertRows(quads: Iterable<RDF.Quad>) {
   return [...quads].map((quad) => {
+    assertValidQuad(quad);
     const subject = encodeTerm(quad.subject);
     const predicate = encodeTerm(quad.predicate);
     const object = encodeTerm(quad.object);
@@ -432,18 +446,114 @@ function encodeInsertRows(quads: Iterable<RDF.Quad>) {
 }
 
 function encodeDeleteRows(quads: Iterable<RDF.Quad>) {
-  return [...quads].map((quad) => ({
-    subjectKey: encodeTerm(quad.subject).key,
-    predicateKey: encodeTerm(quad.predicate).key,
-    objectKey: encodeTerm(quad.object).key,
-    graphKey: encodeTerm(quad.graph).key,
-  }));
+  return [...quads].map((quad) => {
+    assertValidQuad(quad);
+    return {
+      subjectKey: encodeTerm(quad.subject).key,
+      predicateKey: encodeTerm(quad.predicate).key,
+      objectKey: encodeTerm(quad.object).key,
+      graphKey: encodeTerm(quad.graph).key,
+    };
+  });
+}
+
+function assertValidQuad(quad: RDF.Quad): void {
+  if (!quad || quad.termType !== 'Quad') {
+    throw new TypeError('RDF writes require RDF/JS Quad values');
+  }
+  assertValidTriple(quad, new Set<RDF.BaseQuad>());
+  assertGraphTerm(quad.graph, 'quad graph');
+}
+
+function assertValidTriple(
+  quad: RDF.BaseQuad,
+  ancestors: Set<RDF.BaseQuad>,
+): void {
+  if (ancestors.has(quad)) {
+    throw new TypeError('Quoted triples cannot contain a cyclic term');
+  }
+  ancestors.add(quad);
+  assertSubjectTerm(quad.subject, ancestors);
+  if (quad.predicate?.termType !== 'NamedNode') {
+    throw new TypeError('RDF predicates must be NamedNode terms');
+  }
+  assertObjectTerm(quad.object, ancestors);
+  ancestors.delete(quad);
+}
+
+function assertSubjectTerm(term: RDF.Term, ancestors: Set<RDF.BaseQuad>): void {
+  if (term?.termType === 'NamedNode' || term?.termType === 'BlankNode') {
+    return;
+  }
+  if (term?.termType === 'Quad') {
+    assertQuotedTriple(term, ancestors);
+    return;
+  }
+  throw new TypeError(
+    'RDF subjects must be NamedNode, BlankNode, or quoted-triple terms',
+  );
+}
+
+function assertObjectTerm(term: RDF.Term, ancestors: Set<RDF.BaseQuad>): void {
+  if (
+    term?.termType === 'NamedNode' ||
+    term?.termType === 'BlankNode' ||
+    term?.termType === 'Literal'
+  ) {
+    return;
+  }
+  if (term?.termType === 'Quad') {
+    assertQuotedTriple(term, ancestors);
+    return;
+  }
+  throw new TypeError(
+    'RDF objects must be NamedNode, BlankNode, Literal, or quoted-triple terms',
+  );
+}
+
+function assertQuotedTriple(
+  quad: RDF.BaseQuad,
+  ancestors: Set<RDF.BaseQuad>,
+): void {
+  if (quad.graph?.termType !== 'DefaultGraph') {
+    throw new TypeError('Quoted triples must use the default graph component');
+  }
+  assertValidTriple(quad, ancestors);
+}
+
+function assertGraphTerm(term: RDF.Term, context: string): void {
+  if (
+    term?.termType !== 'DefaultGraph' &&
+    term?.termType !== 'NamedNode' &&
+    term?.termType !== 'BlankNode'
+  ) {
+    throw new TypeError(
+      `${context} must be a DefaultGraph, NamedNode, or BlankNode term`,
+    );
+  }
+}
+
+function assertValidPattern(terms: ReadonlyArray<RDF.Term | null>): void {
+  const [subject, predicate, object, graph] = terms;
+  if (subject) {
+    assertSubjectTerm(subject, new Set<RDF.BaseQuad>());
+  }
+  if (predicate && predicate.termType !== 'NamedNode') {
+    throw new TypeError('RDF predicates must be NamedNode terms');
+  }
+  if (object) {
+    assertObjectTerm(object, new Set<RDF.BaseQuad>());
+  }
+  if (graph) {
+    assertGraphTerm(graph, 'quad graph');
+  }
 }
 
 function prepareGuard(
   db: D1DatabaseLike,
   guardId: string,
-  requirePayload: string,
+  requirePayload: string | null,
+  forbidPayload: string | null,
 ) {
   return db
     .prepare(
@@ -458,9 +568,19 @@ function prepareGuard(
             AND existing.object_key = json_extract(required.value, '$.objectKey')
             AND existing.graph_key = json_extract(required.value, '$.graphKey')
         )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM json_each(?) AS forbidden
+        WHERE EXISTS (
+          SELECT 1 FROM rdf_quads AS existing
+          WHERE existing.subject_key = json_extract(forbidden.value, '$.subjectKey')
+            AND existing.predicate_key = json_extract(forbidden.value, '$.predicateKey')
+            AND existing.object_key = json_extract(forbidden.value, '$.objectKey')
+            AND existing.graph_key = json_extract(forbidden.value, '$.graphKey')
+        )
       )`,
     )
-    .bind(guardId, requirePayload);
+    .bind(guardId, requirePayload, forbidPayload);
 }
 
 function prepareDelete(db: D1DatabaseLike, payload: string, guardId?: string) {
@@ -572,14 +692,38 @@ function consumeQuadStream(
 ): EventEmitter {
   const output = new EventEmitter();
   const quads: RDF.Quad[] = [];
-  stream.on('data', (quad) => quads.push(quad));
-  stream.on('error', (error) => output.emit('error', error));
-  stream.on('end', () => {
+  let settled = false;
+  const cleanup = () => {
+    stream.removeListener('data', onData);
+    stream.removeListener('end', onEnd);
+  };
+  const onData = (quad: RDF.Quad) => {
+    if (!settled) {
+      quads.push(quad);
+    }
+  };
+  const onError = (error: unknown) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    cleanup();
+    output.emit('error', error);
+  };
+  const onEnd = () => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    cleanup();
     void operation(quads).then(
       () => output.emit('end'),
       (error) => output.emit('error', error),
     );
-  });
+  };
+  stream.on('data', onData);
+  stream.on('error', onError);
+  stream.on('end', onEnd);
   return output;
 }
 

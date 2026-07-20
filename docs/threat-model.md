@@ -14,18 +14,18 @@ are untrusted. The D1 binding and package configuration are trusted host inputs.
 
 ## Primary threats and controls
 
-| Threat                  | Default control                                          |
-| ----------------------- | -------------------------------------------------------- |
-| Unauthorized reads      | Host-provided authentication hook                        |
-| Unauthorized writes     | Read-only endpoint; Update requires opt-in               |
-| SSRF through federation | `SERVICE` requires a per-target URL policy               |
-| SSRF through RDF import | Remote SPARQL `LOAD` is rejected at the HTTP boundary    |
-| Query explosion         | Query bytes, algebra depth/operation, and timeout limits |
-| Oversized output        | Bounded serialized stream and cancellation               |
-| SQL injection           | Fixed SQL structure and bound term keys                  |
-| Cross-graph disclosure  | Host owns endpoint authorization and dataset scope       |
-| Error disclosure        | Unexpected server errors are redacted by default         |
-| Supply-chain compromise | Lockfile, dependency review, CodeQL, audit, Dependabot   |
+| Threat                  | Default control                                            |
+| ----------------------- | ---------------------------------------------------------- |
+| Unauthorized reads      | Host-provided authentication hook                          |
+| Unauthorized writes     | Read-only endpoint; Update requires opt-in                 |
+| SSRF through federation | `SERVICE` requires a per-target URL policy                 |
+| SSRF through RDF import | Remote SPARQL `LOAD` is rejected at the HTTP boundary      |
+| Query explosion         | Streamed input bound, algebra limits, one request deadline |
+| Oversized output        | Bounded serialized stream and cancellation                 |
+| SQL injection           | Fixed SQL structure and bound term keys                    |
+| Cross-graph disclosure  | Host owns endpoint authorization and dataset scope         |
+| Error disclosure        | Unexpected server errors are redacted by default           |
+| Supply-chain compromise | Lockfile, dependency review, CodeQL, audit, Dependabot     |
 
 ## Residual risks
 
@@ -38,6 +38,10 @@ embedded credentials, and non-HTTP(S) schemes are rejected independently.
 Comunica receives a policy-wrapped fetch transport that rechecks every outbound
 URL and rejects redirects, closing redirect-based SSRF bypasses. DNS and the
 behavior of an explicitly trusted service remain deployment trust decisions.
+POST size enforcement covers the entire encoded body and cancels the reader at
+the limit. Synchronous parser code cannot be interrupted mid-call, so bounded
+input is retained even though one absolute deadline covers the full expensive
+request path and is checked immediately after parsing.
 
 Writable endpoints require `readOnly: false` and stronger host authorization.
 Updates are never accepted through GET or a query media type, avoiding a

@@ -407,6 +407,82 @@ describe('SPARQL HTTP handler', () => {
     expect(response.status).toBe(413);
   });
 
+  it('rejects oversized POST bodies before or while reading them', async () => {
+    handle = createSparqlHandler({ db, maxQueryBytes: 12 });
+    const declared = await handle(
+      new Request('https://site.test/api/sparql', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/sparql-query',
+          'content-length': '100',
+        },
+        body: 'ASK {}',
+      }),
+    );
+    expect(declared.status).toBe(413);
+
+    let cancelled = false;
+    const chunkedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('ASK { '));
+        controller.enqueue(new TextEncoder().encode('?s ?p ?o }'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const chunked = await handle(
+      new Request('https://site.test/api/sparql', {
+        method: 'POST',
+        headers: { 'content-type': 'application/sparql-query' },
+        body: chunkedBody,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+    );
+    expect(chunked.status).toBe(413);
+    expect(cancelled).toBe(true);
+
+    const incorrectlySized = await handle(
+      new Request('https://site.test/api/sparql', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/sparql-query',
+          'content-length': '1',
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('ASK { ?s ?p ?o }'));
+          },
+        }),
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+    );
+    expect(incorrectlySized.status).toBe(413);
+
+    const writable = createSparqlHandler({
+      db,
+      readOnly: false,
+      maxQueryBytes: 12,
+    });
+    const update = await writable(
+      new Request('https://site.test/api/sparql', {
+        method: 'POST',
+        headers: { 'content-type': 'application/sparql-update' },
+        body: 'INSERT DATA { <x:s> <x:p> <x:o> }',
+      }),
+    );
+    expect(update.status).toBe(413);
+
+    const form = await handle(
+      new Request('https://site.test/api/sparql', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ query: 'ASK {}', ignored: 'x'.repeat(40) }),
+      }),
+    );
+    expect(form.status).toBe(413);
+  });
+
   it('rejects unsupported result media types', async () => {
     const response = await handle(
       new Request('https://site.test/api/sparql?query=ASK%20%7B%7D', {
@@ -555,6 +631,45 @@ describe('SPARQL HTTP handler', () => {
       new Request('https://site.test/api/sparql?query=ASK%20%7B%7D'),
     );
     expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: 'SPARQL query execution failed',
+    });
+  });
+
+  it('uses one timeout budget for engine acquisition and query work', async () => {
+    let queryStarted = false;
+    const delayedEngine = new Promise<QueryEngine>((resolve) => {
+      setTimeout(
+        () =>
+          resolve({
+            query: () => {
+              queryStarted = true;
+              return new Promise((queryResolve) =>
+                setTimeout(
+                  () =>
+                    queryResolve({
+                      resultType: 'void',
+                      execute: async () => undefined,
+                    }),
+                  40,
+                ),
+              );
+            },
+          } as unknown as QueryEngine),
+        20,
+      );
+    });
+    handle = createSparqlHandler({
+      db,
+      engine: delayedEngine,
+      timeoutMs: 50,
+    });
+
+    const response = await handle(
+      new Request('https://site.test/api/sparql?query=ASK%20%7B%7D'),
+    );
+    expect(queryStarted).toBe(true);
+    expect(response.status).toBe(504);
     await expect(response.json()).resolves.toEqual({
       error: 'SPARQL query execution failed',
     });

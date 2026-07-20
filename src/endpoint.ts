@@ -58,7 +58,7 @@ export interface SparqlHandlerOptions {
   db: D1DatabaseLike;
   sourceFactory?: D1SourceFactory;
   sourcePageSize?: number;
-  engine?: QueryEngine;
+  engine?: QueryEngine | Promise<QueryEngine>;
   authenticate?: (
     request: Request,
   ) => boolean | Response | Promise<boolean | Response>;
@@ -147,7 +147,12 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         throw new HttpError(401, 'Unauthorized');
       }
 
-      const { query, operation } = await extractQuery(request, readOnly);
+      const deadline = performance.now() + limits.timeoutMs;
+      const { query, operation } = await withDeadline(
+        extractQuery(request, readOnly, limits.maxQueryBytes),
+        deadline,
+        request.signal,
+      );
       queryBytes = new TextEncoder().encode(query).byteLength;
       if (queryBytes > limits.maxQueryBytes) {
         throw new HttpError(
@@ -157,11 +162,8 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
       }
 
       const context = { sources: [source], readOnly };
-      const parsed = await withTimeout(
-        Promise.resolve().then(() => translate(query, { quads: true })),
-        limits.timeoutMs,
-        request.signal,
-      );
+      const parsed = translate(query, { quads: true });
+      assertActiveDeadline(deadline, request.signal);
       const analysis = analyzeAlgebra(parsed);
 
       if (analysis.operations > limits.maxAlgebraOperations) {
@@ -189,18 +191,21 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         );
       }
       if (analysis.types.has('service')) {
-        await authorizeServices(
-          analysis.serviceTargets,
-          options.servicePolicy,
-          request,
+        await withDeadline(
+          authorizeServices(
+            analysis.serviceTargets,
+            options.servicePolicy,
+            request,
+          ),
+          deadline,
+          request.signal,
         );
       }
       if (readOnly && isUpdate) {
         throw new HttpError(403, 'SPARQL Update is disabled');
       }
 
-      const engine = await getEngine();
-      const deadline = performance.now() + limits.timeoutMs;
+      const engine = await withDeadline(getEngine(), deadline, request.signal);
       const queryContext = {
         ...context,
         httpAbortSignal: request.signal,
@@ -227,7 +232,11 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         return new Response(null, { status: 204 });
       }
 
-      const available = await engine.getResultMediaTypes(queryContext);
+      const available = await withDeadline(
+        engine.getResultMediaTypes(queryContext),
+        deadline,
+        request.signal,
+      );
       mediaType = negotiateMediaType(
         request.headers.get('accept'),
         result.resultType,
@@ -248,6 +257,7 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
                 request.signal,
               )
             ).data;
+      assertActiveDeadline(deadline, request.signal);
       const body = toWebStream(serializedData, {
         deadline,
         maxBytes: limits.maxResultBytes,
@@ -301,6 +311,7 @@ async function loadDefaultEngine(): Promise<QueryEngine> {
 async function extractQuery(
   request: Request,
   readOnly: boolean,
+  maxBodyBytes: number,
 ): Promise<{ query: string; operation: 'query' | 'update' }> {
   if (request.method === 'GET') {
     const url = new URL(request.url);
@@ -324,16 +335,24 @@ async function extractQuery(
     ?.split(';', 1)[0]
     ?.trim();
   if (contentType === 'application/sparql-query') {
-    return { query: await request.text(), operation: 'query' };
+    return {
+      query: await readRequestBody(request, maxBodyBytes),
+      operation: 'query',
+    };
   }
   if (contentType === 'application/sparql-update') {
     if (readOnly) {
       throw new HttpError(403, 'SPARQL Update is disabled');
     }
-    return { query: await request.text(), operation: 'update' };
+    return {
+      query: await readRequestBody(request, maxBodyBytes),
+      operation: 'update',
+    };
   }
   if (contentType === 'application/x-www-form-urlencoded') {
-    const form = new URLSearchParams(await request.text());
+    const form = new URLSearchParams(
+      await readRequestBody(request, maxBodyBytes),
+    );
     const query = form.get('query');
     const update = form.get('update');
     if (query !== null && update !== null) {
@@ -350,6 +369,51 @@ async function extractQuery(
     return { query: text, operation };
   }
   throw new HttpError(415, 'Unsupported SPARQL request content type');
+}
+
+async function readRequestBody(
+  request: Request,
+  maxBytes: number,
+): Promise<string> {
+  const contentLength = request.headers.get('content-length');
+  if (/^\d+$/u.test(contentLength ?? '') && Number(contentLength) > maxBytes) {
+    await request.body?.cancel();
+    throw new HttpError(413, 'SPARQL query exceeds the configured size limit');
+  }
+  if (!request.body) {
+    return '';
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new HttpError(
+          413,
+          'SPARQL query exceeds the configured size limit',
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(body);
 }
 
 function analyzeAlgebra(value: unknown): {
@@ -656,14 +720,6 @@ function toWebStream(
   });
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<T> {
-  return withDeadline(promise, performance.now() + timeoutMs, signal);
-}
-
 function withDeadline<T>(
   promise: Promise<T>,
   deadline: number,
@@ -699,6 +755,15 @@ function withDeadline<T>(
       onAbort();
     }
   });
+}
+
+function assertActiveDeadline(deadline: number, signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new HttpError(499, 'SPARQL request was cancelled');
+  }
+  if (performance.now() >= deadline) {
+    throw new HttpError(504, 'SPARQL query timed out');
+  }
 }
 
 function normalizeError(error: unknown): HttpError {

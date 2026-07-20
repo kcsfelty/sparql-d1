@@ -8,7 +8,7 @@ triplestore.
 > Status: public experimental release. SPARQL/RDF correctness is extensively
 > tested, while the TypeScript API and physical D1 schema may change before
 > 1.0. See the [npm package](https://www.npmjs.com/package/sparql-d1) and
-> [v0.2.0 release](https://github.com/kcsfelty/sparql-d1/releases/tag/v0.2.0).
+> [v0.2.1 release](https://github.com/kcsfelty/sparql-d1/releases/tag/v0.2.1).
 
 ## What it provides
 

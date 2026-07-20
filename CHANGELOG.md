@@ -5,6 +5,26 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-20
+
+### Added
+
+- Atomic forbidden-quad absence assertions for guarded creation workflows.
+- Recursive RDF quad-position validation across every exact write path.
+- Complete add/delete statement commands and identity invariants in the
+  Wikibase-style application example.
+
+### Fixed
+
+- Prevented RDF Store imports/removals from writing after their input stream
+  reports an error.
+- Enforced POST size limits while streaming the complete encoded body.
+- Applied one absolute timeout across body reading, parsing, engine acquisition,
+  query work, and serialization.
+- Evaluated require-only quad-patch assertions instead of returning early.
+- Excluded deprecated-only statements from best-rank/truthy projections and
+  hardened entity/statement/reference lifecycle behavior.
+
 ## [0.2.0] - 2026-07-20
 
 ### Added
