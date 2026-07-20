@@ -40,12 +40,15 @@
     "docs",
     "examples",
     "migrations",
+    "scripts/deployed-e2e.mjs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "SECURITY.md",
+    "SUPPORT.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run worker:check && npm run pack:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run worker:check && npm run worker:test && npm run pack:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
     "conformance": "npm run build && node scripts/run-conformance.mjs summary",
     "conformance:earl": "npm run build && node scripts/run-conformance.mjs earl",
     "consumer:check": "node scripts/consumer-smoke.mjs",
@@ -63,7 +66,8 @@
     "pack:check": "npm pack --dry-run",
     "benchmark": "tsx benchmark/run.ts",
     "benchmark:check": "npm run --silent benchmark > benchmark.json && node scripts/validate-benchmark.mjs benchmark.json",
-    "worker:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
+    "worker:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "worker:test": "node scripts/worker-e2e.mjs"
   },
   "engines": {
     "node": ">=22"

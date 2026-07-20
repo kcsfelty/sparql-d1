@@ -14,8 +14,10 @@ or configured project. Replace only `ARTIFACT_PATH` and `EVIDENCE_PATH`.
 > deploy, and execute every acceptance check in
 > `docs/integration-validation.md`. Also create a temporary authenticated
 > writable validation route against disposable data, verify insert/read/delete
-> behavior, and verify that both unauthorized access and remote SPARQL `LOAD`
-> are rejected. Remove the temporary test data when finished.
+> behavior, verify SPARQL Results XML for both ASK and SELECT in the production
+> Worker, run the packed `npm run test:deployed` procedure from the installed
+> package, and verify that both unauthorized access and remote SPARQL `LOAD` are
+> rejected. Remove the temporary test data when finished.
 >
 > Do not silently repair package or documentation defects. Record every
 > ambiguity, missing step, failure, workaround, command, package SHA-256,

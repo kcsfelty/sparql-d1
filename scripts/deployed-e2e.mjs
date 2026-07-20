@@ -9,8 +9,27 @@ if (!endpoint) {
 
 const authHeader = process.env.SPARQL_AUTH_HEADER;
 const authToken = process.env.SPARQL_AUTH_TOKEN;
+const outerAuthHeader = process.env.SPARQL_OUTER_AUTH_HEADER;
+const outerAuthToken = process.env.SPARQL_OUTER_AUTH_TOKEN;
+
+if (Boolean(authHeader) !== Boolean(authToken)) {
+  throw new Error(
+    'SPARQL_AUTH_HEADER and SPARQL_AUTH_TOKEN must be set together',
+  );
+}
+if (Boolean(outerAuthHeader) !== Boolean(outerAuthToken)) {
+  throw new Error(
+    'SPARQL_OUTER_AUTH_HEADER and SPARQL_OUTER_AUTH_TOKEN must be set together',
+  );
+}
+
 const authorization =
   authHeader && authToken ? { [authHeader]: `Bearer ${authToken}` } : {};
+const outerAuthorization =
+  outerAuthHeader && outerAuthToken
+    ? { [outerAuthHeader]: `Bearer ${outerAuthToken}` }
+    : {};
+const authentication = { ...outerAuthorization, ...authorization };
 const id = randomUUID();
 const graph = `https://example.test/deployed-e2e/${id}`;
 const subject = `${graph}#subject`;
@@ -21,7 +40,7 @@ async function request(query, accept) {
   const url = new URL(endpoint);
   url.searchParams.set('query', query);
   return fetch(url, {
-    headers: { ...authorization, ...(accept ? { accept } : {}) },
+    headers: { ...authentication, ...(accept ? { accept } : {}) },
   });
 }
 
@@ -29,7 +48,7 @@ async function update(operation) {
   return fetch(endpoint, {
     method: 'POST',
     headers: {
-      ...authorization,
+      ...authentication,
       'content-type': 'application/sparql-update',
     },
     body: operation,
@@ -70,6 +89,14 @@ try {
   assert.equal(results.results.bindings[0].value['xml:lang'], 'en');
   assert.equal(results.results.bindings[0].graph.value, graph);
 
+  const xml = await request('ASK {}', 'application/sparql-results+xml');
+  await assertStatus(xml, 200);
+  assert.match(
+    xml.headers.get('content-type') ?? '',
+    /^application\/sparql-results\+xml/u,
+  );
+  assert.match(await xml.text(), /<boolean>true<\/boolean>/u);
+
   const construct = await request(
     `CONSTRUCT { <${subject}> <${predicate}> ?value }
      WHERE { GRAPH <${graph}> { <${subject}> <${predicate}> ?value } }`,
@@ -89,6 +116,7 @@ try {
       endpoint,
       insertStatus: insert.status,
       selectStatus: select.status,
+      xmlStatus: xml.status,
       constructStatus: construct.status,
       serviceStatus: service.status,
       bindingCount: results.results.bindings.length,

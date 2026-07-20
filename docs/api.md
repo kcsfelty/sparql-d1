@@ -56,7 +56,8 @@ HTTP `Accept` negotiation honors exact types, `type/*` and `*/*` ranges,
 quality weights, and exact `q=0` exclusions. The defaults are SPARQL Results
 JSON and Turtle; an unacceptable request receives HTTP 406.
 
-GET accepts only the `query` parameter. Updates require POST with either
+GET requires the `query` parameter; unrelated query parameters are currently
+ignored. Updates require POST with either
 `application/sparql-update` or exactly one form-encoded `update` field. Query
 and update media types are not interchangeable, even when writable mode is
 enabled; ambiguous or disguised operations receive HTTP 400.

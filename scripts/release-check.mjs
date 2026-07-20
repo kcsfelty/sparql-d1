@@ -51,6 +51,7 @@ const files = new Set(artifact.files.map(({ path }) => path));
 for (const required of [
   'LICENSE',
   'README.md',
+  'SECURITY.md',
   'dist/index.js',
   'dist/index.d.ts',
   'dist/endpoint.js',
@@ -63,6 +64,7 @@ for (const required of [
   'examples/codex-site/app/api/sparql/admin/route.ts',
   'examples/codex-site/drizzle/0000_rdf_quads.sql',
   'migrations/0001_rdf_quads.sql',
+  'scripts/deployed-e2e.mjs',
 ]) {
   assert.ok(files.has(required), `packed artifact is missing ${required}`);
 }

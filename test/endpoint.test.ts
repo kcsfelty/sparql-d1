@@ -87,6 +87,84 @@ describe('SPARQL HTTP handler', () => {
     expect(await response.text()).toContain('Alice');
   });
 
+  it('serializes ASK results as SPARQL Results XML', async () => {
+    const response = await handle(
+      new Request('https://site.test/api/sparql?query=ASK%20%7B%7D', {
+        headers: { accept: 'application/sparql-results+xml' },
+      }),
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get('content-type')).toContain(
+      'application/sparql-results+xml',
+    );
+    const body = await response.text();
+    expect(body).toContain('<head></head><boolean>true</boolean>');
+    expect(body).toContain('</sparql>');
+  });
+
+  it('escapes RDF values in SPARQL Results XML', async () => {
+    await insertQuads(db, [
+      factory.quad(ex('escaped'), ex('value'), factory.literal('<&>"')),
+    ]);
+    const query = encodeURIComponent(
+      'SELECT ?value WHERE { <https://example.test/escaped> <https://example.test/value> ?value }',
+    );
+    const response = await handle(
+      new Request(`https://site.test/api/sparql?query=${query}`, {
+        headers: { accept: 'application/sparql-results+xml' },
+      }),
+    );
+    expect(await response.text()).toContain('&lt;&amp;&gt;&quot;');
+  });
+
+  it('preserves every RDF binding shape in SPARQL Results XML', async () => {
+    const subject = ex('xml-terms');
+    await insertQuads(db, [
+      factory.quad(subject, ex('iri'), ex('object')),
+      factory.quad(subject, ex('blank'), factory.blankNode('xml-blank')),
+      factory.quad(subject, ex('language'), factory.literal('bonjour', 'fr')),
+      factory.quad(
+        subject,
+        ex('typed'),
+        factory.literal(
+          '42',
+          factory.namedNode('http://www.w3.org/2001/XMLSchema#integer'),
+        ),
+      ),
+      factory.quad(
+        subject,
+        ex('quoted'),
+        factory.quad(
+          ex('quoted-subject'),
+          ex('quoted-predicate'),
+          factory.literal('quoted'),
+        ),
+      ),
+    ]);
+    const query =
+      encodeURIComponent(`SELECT ?iri ?blank ?language ?typed ?quoted WHERE {
+      <https://example.test/xml-terms> <https://example.test/iri> ?iri;
+        <https://example.test/blank> ?blank;
+        <https://example.test/language> ?language;
+        <https://example.test/typed> ?typed;
+        <https://example.test/quoted> ?quoted.
+    }`);
+    const response = await handle(
+      new Request(`https://site.test/api/sparql?query=${query}`, {
+        headers: { accept: 'application/sparql-results+xml' },
+      }),
+    );
+    const xml = await response.text();
+    expect(response.status, xml).toBe(200);
+    expect(xml).toContain('<uri>https://example.test/object</uri>');
+    expect(xml).toMatch(/<bnode>[^<]*xml-blank<\/bnode>/u);
+    expect(xml).toContain('<literal xml:lang="fr">bonjour</literal>');
+    expect(xml).toContain(
+      '<literal datatype="http://www.w3.org/2001/XMLSchema#integer">42</literal>',
+    );
+    expect(xml).toContain('<triple><subject><uri>');
+  });
+
   it.each([
     'text/turtle',
     'application/n-triples',

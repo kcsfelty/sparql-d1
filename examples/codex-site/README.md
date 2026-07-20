@@ -6,6 +6,12 @@ migration for its managed database. Install a packed private artifact as
 described in the repository README and configure `SPARQL_TOKEN` through Sites
 runtime values. Do not commit the token or place it in `.openai/hosting.json`.
 
+Deployment applies the copied Drizzle migration to managed D1. A fresh local
+`vinext dev` D1 is not initialized by copying the file alone; unless the Sites
+starter documents a local migration command, perform the first functional D1
+check after an owner-only deployment. The package's Miniflare suite applies and
+tests this schema locally under workerd.
+
 The public-facing `/api/sparql` example is read-only and deliberately fails
 closed when no token is configured. A real site may replace the bearer check
 with its existing identity and authorization layer.

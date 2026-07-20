@@ -31,3 +31,7 @@ Versioning after the first public release.
 - A source-factory extension boundary for future SQL-pushdown implementations.
 - Default rejection of remote SPARQL `LOAD`, including on writable endpoints.
 - Explicit experimental-release and sole-maintainer governance policies.
+- Worker-safe SPARQL Results XML serialization for ASK and SELECT, guarded by
+  a bundled-workerd regression test.
+- An artifact-contained deployed probe supporting separate outer Sites and
+  endpoint bearer credentials.

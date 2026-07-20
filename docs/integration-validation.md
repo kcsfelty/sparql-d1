@@ -52,6 +52,19 @@ Copy these paths from `examples/codex-site`, preserving their relative paths:
 Set the secret runtime value `SPARQL_TOKEN`. Keep the site owner-only during
 validation, then build and deploy through the normal Codex Sites workflow.
 
+The Sites deployment flow applies the copied Drizzle migration to managed D1.
+The current Sites starter does not expose a package-documented command for
+applying that migration to the fresh D1 used by `vinext dev`; authenticated
+local queries will fail until its schema exists. Treat the first functional D1
+acceptance check as a hosted, owner-only deployment check unless the Sites
+starter documents a local migration workflow. The package's own Miniflare test
+suite separately applies and verifies the same schema in workerd.
+
+Identity-less probes of an owner-only Site need two independent credentials:
+the temporary Sites bypass header and the endpoint's `Authorization` bearer.
+`scripts/deployed-e2e.mjs` supports these as documented in
+`docs/deployed-e2e.md`.
+
 ## Acceptance checks
 
 Record evidence for each item:
@@ -59,6 +72,9 @@ Record evidence for each item:
 - The site builds without Node-only module initialization errors.
 - An unauthenticated query receives HTTP 401.
 - An authenticated `ASK {}` receives HTTP 200 and SPARQL Results JSON.
+- Authenticated ASK and SELECT requests with
+  `Accept: application/sparql-results+xml` receive HTTP 200 and well-formed,
+  semantically correct SPARQL Results XML.
 - A `SERVICE <https://example.invalid/>` query receives HTTP 403.
 - A remote `LOAD <https://example.invalid/data.ttl>` update receives HTTP 403,
   including on the temporary writable validation route.
@@ -69,7 +85,10 @@ Record evidence for each item:
   requires an owner-only administrative endpoint.
 
 For a temporary write-enabled validation endpoint, run the repository's
-`scripts/deployed-e2e.mjs` as documented in `docs/deployed-e2e.md`.
+packed `scripts/deployed-e2e.mjs` through `npm run test:deployed`, as documented
+in `docs/deployed-e2e.md`. Run it from the installed package (for example with
+`npm explore sparql-d1 -- npm run test:deployed`) to prove the published
+artifact contains the script.
 
 ## Sign-off record
 

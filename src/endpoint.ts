@@ -230,16 +230,22 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         result.resultType,
         new Set(Object.keys(available)),
       );
-      const serialized = await withDeadline(
-        engine.resultToString(
-          result as RDF.Query<unknown>,
-          mediaType,
-          queryContext,
-        ),
-        deadline,
-        request.signal,
-      );
-      const body = toWebStream(serialized.data, {
+      const serializedData =
+        mediaType === 'application/sparql-results+xml' &&
+        (result.resultType === 'bindings' || result.resultType === 'boolean')
+          ? serializeSparqlXml(result)
+          : (
+              await withDeadline(
+                engine.resultToString(
+                  result as RDF.Query<unknown>,
+                  mediaType,
+                  queryContext,
+                ),
+                deadline,
+                request.signal,
+              )
+            ).data;
+      const body = toWebStream(serializedData, {
         deadline,
         maxBytes: limits.maxResultBytes,
         signal: request.signal,
@@ -530,12 +536,83 @@ function mediaRangeMatches(range: string, mediaType: string): boolean {
   );
 }
 
+async function* serializeSparqlXml(
+  result: RDF.QueryBindings<unknown> | RDF.QueryBoolean,
+): AsyncGenerator<string> {
+  yield '<?xml version="1.0" encoding="UTF-8"?>\n';
+  yield '<sparql xmlns="http://www.w3.org/2005/sparql-results#" xmlns:its="http://www.w3.org/2005/11/its" its:version="2.0">';
+
+  if (result.resultType === 'boolean') {
+    yield '<head></head><boolean>';
+    yield String(await result.execute());
+    yield '</boolean></sparql>';
+    return;
+  }
+
+  const metadata = await result.metadata();
+  yield '<head>';
+  for (const variable of metadata.variables) {
+    yield `<variable name="${escapeXml(variable.value)}"/>`;
+  }
+  yield '</head><results>';
+
+  const bindingsStream = await result.execute();
+  for await (const bindings of bindingsStream as unknown as AsyncIterable<RDF.Bindings>) {
+    yield '<result>';
+    for (const [variable, term] of bindings) {
+      yield `<binding name="${escapeXml(variable.value)}">${termToSparqlXml(term)}</binding>`;
+    }
+    yield '</result>';
+  }
+  yield '</results></sparql>';
+}
+
+function termToSparqlXml(term: RDF.Term): string {
+  switch (term.termType) {
+    case 'NamedNode':
+      return `<uri>${escapeXml(term.value)}</uri>`;
+    case 'BlankNode':
+      return `<bnode>${escapeXml(term.value)}</bnode>`;
+    case 'Literal': {
+      const direction =
+        'direction' in term && typeof term.direction === 'string'
+          ? term.direction
+          : '';
+      const attributes = term.language
+        ? ` xml:lang="${escapeXml(term.language)}"${direction ? ` its:dir="${escapeXml(direction)}"` : ''}`
+        : term.datatype.value !== 'http://www.w3.org/2001/XMLSchema#string'
+          ? ` datatype="${escapeXml(term.datatype.value)}"`
+          : '';
+      return `<literal${attributes}>${escapeXml(term.value)}</literal>`;
+    }
+    case 'Quad':
+      return `<triple><subject>${termToSparqlXml(term.subject)}</subject><predicate>${termToSparqlXml(term.predicate)}</predicate><object>${termToSparqlXml(term.object)}</object></triple>`;
+    default:
+      throw new Error(
+        `RDF term type ${term.termType} cannot appear in a SPARQL XML binding`,
+      );
+  }
+}
+
+function escapeXml(value: string): string {
+  const escapes: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&apos;',
+  };
+  return value.replace(
+    /[&<>"']/gu,
+    (character) => escapes[character] as string,
+  );
+}
+
 function toWebStream(
-  data: NodeJS.ReadableStream,
+  data: AsyncIterable<unknown>,
   limits: { deadline: number; maxBytes: number; signal: AbortSignal },
 ): ReadableStream<Uint8Array> {
-  const iterable = data as NodeJS.ReadableStream & AsyncIterable<unknown>;
-  const iterator = iterable[Symbol.asyncIterator]();
+  const iterator = data[Symbol.asyncIterator]();
   const encoder = new TextEncoder();
   let bytes = 0;
 

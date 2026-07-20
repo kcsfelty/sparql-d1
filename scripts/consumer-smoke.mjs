@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -67,5 +67,10 @@ if (
   installed.version !== sourcePackage.version
 ) {
   throw new Error('Packed metadata differs from the source package');
+}
+for (const path of ['scripts/deployed-e2e.mjs', 'SECURITY.md']) {
+  if (!existsSync(join(root, 'node_modules', 'sparql-d1', path))) {
+    throw new Error(`Packed artifact is missing ${path}`);
+  }
 }
 console.log(`consumer smoke passed for ${installed.name}@${installed.version}`);
