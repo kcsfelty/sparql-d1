@@ -1,6 +1,6 @@
 {
   "name": "sparql-d1",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Comunica-compatible RDF/JS source backed by Cloudflare D1.",
   "author": "kcsfelty",
   "keywords": [
@@ -49,10 +49,11 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run worker:check && npm run worker:test && npm run pack:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run example:check && npm run worker:check && npm run worker:test && npm run pack:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
     "conformance": "npm run build && node scripts/run-conformance.mjs summary",
     "conformance:earl": "npm run build && node scripts/run-conformance.mjs earl",
     "consumer:check": "node scripts/consumer-smoke.mjs",
+    "example:check": "tsx scripts/wikibase-example-check.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
@@ -68,6 +69,8 @@
     "pack:check": "npm pack --dry-run",
     "benchmark": "tsx benchmark/run.ts",
     "benchmark:check": "npm run --silent benchmark > benchmark.json && node scripts/validate-benchmark.mjs benchmark.json",
+    "benchmark:storage": "tsx benchmark/storage.ts",
+    "benchmark:storage:check": "npm run --silent benchmark:storage > benchmark-storage.json",
     "worker:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
     "worker:test": "node scripts/worker-e2e.mjs"
   },

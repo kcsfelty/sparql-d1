@@ -2,14 +2,14 @@
 
 ## Supported versions
 
-No public version is supported while the project is in private pre-release.
-The support table will be added before version 1.0.0.
+Until 1.0, the latest published minor line receives security fixes. Older `0.x`
+lines may require upgrading because the API and physical schema are
+experimental.
 
 ## Reporting a vulnerability
 
-Do not file public issues for suspected vulnerabilities. Use GitHub private
-vulnerability reporting once the repository is public. While it is private,
-contact the repository owner through the private project channel.
+Do not file public issues for suspected vulnerabilities. Use the repository's
+GitHub private vulnerability-reporting flow.
 
 Include the affected version or commit, deployment conditions, reproduction,
 impact, and any proposed mitigation. Maintainers should acknowledge a report

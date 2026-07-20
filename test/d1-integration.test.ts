@@ -2,7 +2,13 @@ import { Miniflare } from 'miniflare';
 import type * as RDF from '@rdfjs/types';
 import { DataFactory } from 'rdf-data-factory';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { D1QuadSource, insertQuads } from '../src/d1-source.js';
+import {
+  D1QuadSource,
+  QuadPatchConflictError,
+  applyQuadPatch,
+  insertQuads,
+} from '../src/d1-source.js';
+import { encodeTerm } from '../src/term-codec.js';
 import type { D1DatabaseLike } from '../src/d1-types.js';
 import { initializeStore, inspectStoreSchema } from '../src/schema.js';
 
@@ -61,6 +67,18 @@ describe('workerd D1 integration', () => {
     expect(inspection.valid, inspection.errors.join('\n')).toBe(true);
     expect(inspection.table.strict).toBe(true);
     expect(Object.keys(inspection.indexes)).toHaveLength(4);
+    expect(inspection.indexes).toHaveProperty('sqlite_autoindex_rdf_quads_1');
+    expect(inspection.indexes).not.toHaveProperty('rdf_quads_spog_idx');
+
+    const plan = await db
+      .prepare(
+        'EXPLAIN QUERY PLAN SELECT * FROM rdf_quads WHERE subject_key = ?',
+      )
+      .bind(encodeTerm(factory.namedNode('https://example.test/plan')).key)
+      .all<{ detail: string }>();
+    expect(plan.results.map(({ detail }) => detail).join('\n')).toContain(
+      'sqlite_autoindex_rdf_quads_1',
+    );
   });
 
   it('serializes concurrent duplicate writes without violating set semantics', async () => {
@@ -93,5 +111,122 @@ describe('workerd D1 integration', () => {
       )
       .all<{ count: number }>();
     expect(result.results[0]?.count).toBe(0);
+  });
+
+  it('rolls back a quad patch when its insert side fails in workerd D1', async () => {
+    const oldQuad = factory.quad(
+      factory.namedNode('https://example.test/patch-old'),
+      factory.namedNode('https://example.test/value'),
+      factory.literal('old'),
+    );
+    const rejectedQuad = factory.quad(
+      factory.namedNode('https://example.test/patch-rejected'),
+      factory.namedNode('https://example.test/value'),
+      factory.literal('new'),
+    );
+    await insertQuads(db, [oldQuad]);
+    await db
+      .prepare(
+        `CREATE TRIGGER reject_patch_insert
+        BEFORE INSERT ON rdf_quads
+        WHEN NEW.subject_key = '${encodeTerm(rejectedQuad.subject).key.replaceAll("'", "''")}'
+        BEGIN
+          SELECT RAISE(ABORT, 'injected patch failure');
+        END`,
+      )
+      .run();
+
+    try {
+      await expect(
+        applyQuadPatch(db, { delete: [oldQuad], insert: [rejectedQuad] }),
+      ).rejects.toThrow(/injected patch failure/);
+      const source = new D1QuadSource(db);
+      await expect(
+        source.countQuads(
+          oldQuad.subject,
+          oldQuad.predicate,
+          oldQuad.object,
+          oldQuad.graph,
+        ),
+      ).resolves.toBe(1);
+      await expect(
+        source.countQuads(
+          rejectedQuad.subject,
+          rejectedQuad.predicate,
+          rejectedQuad.object,
+          rejectedQuad.graph,
+        ),
+      ).resolves.toBe(0);
+    } finally {
+      await db.prepare('DROP TRIGGER reject_patch_insert').run();
+    }
+  });
+
+  it('pages workerd D1 reads and stops fetching after cancellation', async () => {
+    const subject = factory.namedNode('https://example.test/paged');
+    const pageQuads = Array.from({ length: 5 }, (_, index) =>
+      factory.quad(
+        subject,
+        factory.namedNode(`https://example.test/p${index}`),
+        factory.literal(String(index)),
+      ),
+    );
+    await insertQuads(db, pageQuads);
+    const observations: number[] = [];
+    const source = new D1QuadSource(db, {
+      pageSize: 2,
+      observe: (observation) =>
+        observations.push(Number(observation.metadata?.page)),
+    });
+    await expect(collect(source.match(subject))).resolves.toHaveLength(5);
+    expect(observations).toEqual([1, 2, 3]);
+
+    const cancellationObservations: number[] = [];
+    const cancellable = new D1QuadSource(db, {
+      pageSize: 2,
+      observe: () => cancellationObservations.push(1),
+    }).match(subject) as RDF.Stream<RDF.Quad> & { destroy(): void };
+    await new Promise<void>((resolve, reject) => {
+      cancellable.once('data', () => {
+        cancellable.destroy();
+        resolve();
+      });
+      cancellable.once('error', reject);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(cancellationObservations).toHaveLength(1);
+  });
+
+  it('allows exactly one concurrent edit for an expected revision', async () => {
+    const entity = factory.namedNode('https://example.test/revisioned');
+    const predicate = factory.namedNode('https://example.test/revision');
+    const oldRevision = factory.quad(entity, predicate, factory.literal('1'));
+    const replacements = ['2a', '2b'].map((value) =>
+      factory.quad(entity, predicate, factory.literal(value)),
+    );
+    await insertQuads(db, [oldRevision]);
+
+    const outcomes = await Promise.allSettled(
+      replacements.map((replacement) =>
+        applyQuadPatch(db, {
+          require: [oldRevision],
+          delete: [oldRevision],
+          insert: [replacement],
+        }),
+      ),
+    );
+    expect(
+      outcomes.filter(({ status }) => status === 'fulfilled'),
+    ).toHaveLength(1);
+    const rejection = outcomes.find(({ status }) => status === 'rejected');
+    expect(rejection).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(QuadPatchConflictError),
+    });
+    const source = new D1QuadSource(db);
+    await expect(source.countQuads(entity, predicate)).resolves.toBe(1);
+    await expect(
+      source.countQuads(entity, predicate, oldRevision.object),
+    ).resolves.toBe(0);
   });
 });

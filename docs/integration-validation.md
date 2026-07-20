@@ -1,44 +1,38 @@
 # Independent Codex Sites integration validation
 
-This checklist is intentionally executable by an independent validator who did
-not author the package. A context-free agent in a separate task is acceptable
-for the experimental `0.1.0` technical sign-off when it receives only the
-artifact and public documentation. Record whether the validator is a person or
-agent, the date, package commit and hash, Sites starter version, and every
-documentation correction in the pull request or issue used for sign-off.
+This checklist is executable by a consumer or an independent validator who did
+not author the package. Record the validator, date, installed package version,
+Sites starter version, and every documentation correction in the pull request
+or issue used for sign-off.
 
-## Maintainer preparation
+## Consumer setup
 
-From the release-candidate commit, the maintainer runs:
-
-```sh
-npm ci
-npm run check
-npm pack
-```
-
-The last command creates `sparql-d1-0.1.0.tgz`. Record its SHA-256, then give
-the validator only the archive and the repository's public-facing README,
-example, and documentation. Do not give the validator an existing source
-checkout, configured Site, implementation discussion, or unpublished
-workaround.
-
-## Validator setup
-
-Start in a fresh directory and new Codex task with no inherited project
-context. Copy the supplied archive into a `vendor/` directory in a new Codex
-Sites project and install it:
+Start in a fresh directory and new Codex task with no inherited project context.
+Create a new Codex Sites project and install the public package:
 
 ```sh
-npm install ./vendor/sparql-d1-0.1.0.tgz
+npm install sparql-d1
 ```
 
-Do not use `npm install sparql-d1` until the package has actually been
-published. Do not install the Git repository directly; generated `dist` files
-are deliberately not committed.
+Do not install the Git repository directly; generated `dist` files are
+deliberately not committed. An agent validator should receive the prompt in
+`docs/clean-room-agent-prompt.md` with the version and evidence-output location
+filled in.
 
-An agent validator should receive the prompt in `docs/clean-room-agent-prompt.md`
-verbatim, with only the artifact path and evidence-output location filled in.
+## Maintainer validation of an unreleased build
+
+For an unreleased commit, the maintainer runs `npm ci`, `npm run check`, and
+`npm pack`, records the archive SHA-256, and gives an independent validator only
+that archive plus public-facing documentation. The validator installs the exact
+archive from a `vendor/` directory:
+
+```sh
+npm install ./vendor/sparql-d1-<version>.tgz
+```
+
+Do not give the validator an existing checkout, configured Site, implementation
+discussion, or unpublished workaround. This artifact workflow validates bytes
+before publication; ordinary consumers should use npm.
 
 ## Add the endpoint
 
@@ -49,6 +43,7 @@ Copy these paths from `examples/codex-site`, preserving their relative paths:
 - `app/api/sparql/admin/route.ts` only for temporary writable validation
 - `app/api/sparql/schema/route.ts` only for temporary managed-schema validation
 - `drizzle/0000_rdf_quads.sql`
+- `drizzle/0001_drop_redundant_spog.sql`
 
 Set the secret runtime value `SPARQL_TOKEN`. Keep the site owner-only during
 validation, then build and deploy through the normal Codex Sites workflow.
@@ -79,18 +74,19 @@ Record evidence for each item:
 - A `SERVICE <https://example.invalid/>` query receives HTTP 403.
 - A remote `LOAD <https://example.invalid/data.ttl>` update receives HTTP 403,
   including on the temporary writable validation route.
-- D1 contains the strict `rdf_quads` table and four covering indexes.
+- D1 contains strict `rdf_quads` and `rdf_patch_guards` tables, the composite
+  uniqueness autoindex, and three distinct cyclic covering indexes.
 - The installed package's `npm run test:deployed:schema` command receives HTTP
   200 from the temporary schema route and verifies `STRICT` plus the exact
-  names and column order of all four covering indexes.
+  names and column order of all four effective indexes.
 - If testing the authenticated admin route, a named-graph insert is visible to
   a later SELECT and can be removed. Configure its distinct
   `SPARQL_ADMIN_TOKEN`, then remove the route after validation unless the site
   requires an owner-only administrative endpoint.
 
-Mount the packed `app/api/sparql/schema/route.ts` beside the temporary admin
+Mount `app/api/sparql/schema/route.ts` beside the temporary admin
 route and protect both with the distinct `SPARQL_ADMIN_TOKEN`. After deployment,
-run the packed catalog verifier from the installed package:
+run the catalog verifier from the installed package:
 
 ```sh
 SPARQL_SCHEMA_ENDPOINT=https://example.test/api/sparql/schema \
@@ -101,12 +97,12 @@ SPARQL_OUTER_AUTH_TOKEN="$SITES_TEST_BYPASS_TOKEN" \
 npm explore sparql-d1 -- npm run test:deployed:schema
 ```
 
-The command must report `strict: true`, four exact index names, and
-`valid: true`. Remove the schema route together with the writable route and
-administrator secret before the final deployment.
+The command must report both tables as strict, the uniqueness autoindex plus
+three exact named indexes, and `valid: true`. Remove the schema route together
+with the writable route and administrator secret before the final deployment.
 
 For a temporary write-enabled validation endpoint, run the repository's
-packed `scripts/deployed-e2e.mjs` through `npm run test:deployed`, as documented
+`scripts/deployed-e2e.mjs` through `npm run test:deployed`, as documented
 in `docs/deployed-e2e.md`. Run it from the installed package (for example with
 `npm explore sparql-d1 -- npm run test:deployed`) to prove the published
 artifact contains the script.

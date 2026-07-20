@@ -17,6 +17,7 @@ const expectedRows = new Map([
   ['predicate-default-graph-match', 4_500],
   ['named-graph-match', 2_500],
   ['unbound-full-scan', 15_000],
+  ['paginated-unbound-full-scan', 15_000],
   ['count-all', 50_000],
   ['join-with-limit', 200],
   ['filter-with-limit', 500],

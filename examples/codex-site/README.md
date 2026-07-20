@@ -2,9 +2,9 @@
 
 Copy this example's `app`, `drizzle`, and `.openai` files into a fresh Sites
 project. The hosting declaration binds D1 as `DB`; Sites packages the Drizzle
-migration for its managed database. Install a packed private artifact as
-described in the repository README and configure `SPARQL_TOKEN` through Sites
-runtime values. Do not commit the token or place it in `.openai/hosting.json`.
+migrations for its managed database. Install `sparql-d1` from npm and configure
+`SPARQL_TOKEN` through Sites runtime values. Do not commit the token or place it
+in `.openai/hosting.json`.
 
 Deployment applies the copied Drizzle migration to managed D1. A fresh local
 `vinext dev` D1 is not initialized by copying the file alone; unless the Sites
@@ -26,9 +26,15 @@ routes; import trusted RDF through an application-controlled path.
 The optional `/api/sparql/schema` example is a narrow, read-only validation
 route protected by the same administrator token. It returns only the
 `rdf_quads` table definition and expected index layout through the package's
-`inspectStoreSchema` helper. Use the packed `npm run test:deployed:schema`
+`inspectStoreSchema` helper. Use `npm run test:deployed:schema` from the
+installed package
 command to verify managed D1, then remove this route with the writable route
 and administrator secret.
 
 The complete clean-project validation and sign-off checklist is in
 `docs/integration-validation.md` at the repository root.
+
+`wikibase-style-statements.ts` and its companion guide show a site-owned
+statement model built on ordinary RDF/JS quads and `applyQuadPatch()`. It is a
+usage example, not Wikipedia/Wikidata-specific code and not a dependency on
+Wikibase.

@@ -3,19 +3,20 @@
 The repository uses layered evidence rather than treating one green suite as
 proof of the entire system.
 
-| Layer         | Evidence                                                               |
-| ------------- | ---------------------------------------------------------------------- |
-| Term codec    | Examples plus generated Unicode literal cases                          |
-| RDF/JS source | Every one of the 16 quad-pattern binding masks                         |
-| Storage       | Strict schema, uniqueness, named/default graph behavior                |
-| Differential  | Identical Comunica queries over D1 and an N3 reference store           |
-| Protocol      | GET/POST, formats, auth, limits, cancellation, SERVICE/LOAD controls   |
-| Update        | Explicit opt-in, atomic stream completion, later read visibility       |
-| D1            | Miniflare/workerd binding, concurrent writes, batch rollback           |
-| Deployment    | Worker dry-run plus real Codex Sites HTTP and managed-D1 sequence      |
-| Consumer      | Install the packed tarball and import both public entry points         |
-| Performance   | Workerd D1 patterns and SPARQL shapes: latency, CPU, heap, calls, rows |
-| Conformance   | 490/490 applicable W3C SPARQL 1.1 manifest cases                       |
+| Layer         | Evidence                                                                |
+| ------------- | ----------------------------------------------------------------------- |
+| Term codec    | Examples plus generated Unicode literal cases                           |
+| RDF/JS source | Every one of the 16 quad-pattern binding masks                          |
+| Storage       | Strict schema, uniqueness, named/default graph behavior                 |
+| Differential  | Identical Comunica queries over D1 and an N3 reference store            |
+| Protocol      | GET/POST, formats, auth, limits, cancellation, SERVICE/LOAD controls    |
+| Update        | Explicit opt-in, atomic stream completion, later read visibility        |
+| D1            | Miniflare/workerd binding, concurrent writes, batch rollback            |
+| Deployment    | Worker dry-run plus real Codex Sites HTTP and managed-D1 sequence       |
+| Consumer      | Pack an unreleased build and import both public entry points            |
+| Application   | Execute the Wikibase-style revision/statement usage example             |
+| Performance   | Buffered/paged D1, SPARQL, and storage: latency, CPU, heap, calls, rows |
+| Conformance   | 490/490 applicable W3C SPARQL 1.1 manifest cases                        |
 
 Coverage gates are 90% for statements, branches, functions, and lines. Type
 declarations and the export-only barrel are excluded because execution
@@ -32,6 +33,8 @@ The dated deployed acceptance evidence and rerun command are recorded in
 `docs/deployed-e2e.md`.
 The reproducible multi-scenario baseline and interpretation are in
 `docs/performance.md`.
+The physical-layout benchmark and decision are in
+`docs/storage-evaluation.md`.
 The definition-of-done evidence map and semantic qualifications are in
 `docs/completion-audit.md`; open-source structure and release wiring are
 checked by `npm run readiness:check`.

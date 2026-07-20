@@ -2,21 +2,23 @@
 
 ## Clean-room release gate
 
-An independent clean-room run of the first `0.1.0` candidate (commit
-`c64e32b`, SHA-256
-`8AFB2C7E25FD1AA6FDBBE29C6F19588A849B10411C52AA10AB8544A4EFDED95B`)
-failed on 2026-07-19. Production Worker ASK-to-XML serialization returned HTTP
-500, and the deployed probe script was absent from the archive. That artifact
-must not be released. The repository now has bundled-Worker ASK/SELECT XML
-regressions and artifact-presence checks; an independent clean-room rerun of a
-new archive remains required before release.
+The third independent clean-room run passed on 2026-07-20 using the exact
+`0.1.0` archive identified by SHA-256
+`5A5C4FC528258C86E03B34A9B0375F225BA81AE8C0D3897E849AFCFBF7C0CD90`.
+An independent Codex agent started with a new directory, new Site, new managed
+D1 database, and only packed public-facing material. It verified both
+authentication boundaries, JSON/XML/RDF results, read-only enforcement,
+SERVICE and LOAD rejection, disposable named-graph write/read/delete, the
+packed deployed probe, and the packed schema verifier. It then removed the
+temporary writable/schema routes, administrator secret, and all RDF test data;
+the final Site retained only the authenticated read-only route. Overall result:
+PASS.
 
-A second independent run of commit `4a0e008` and SHA-256
-`AAB0C9027B0F9F2BFD055D3C44AA2CF26509A647031AFE891F266F37E3045A4E`
-passed every production behavior check but failed sign-off because the packed
-procedure required managed-D1 catalog proof without providing a diagnostic
-route or command. The package now includes both; another independent run is
-required.
+Two earlier candidates are retained as useful negative evidence. Candidate
+`c64e32b` exposed a production Worker XML defect and missing packed probe.
+Candidate `4a0e008` passed runtime behavior but revealed that the written gate
+lacked an executable managed-catalog check. Both defects were corrected before
+the passing third run.
 
 ## Earlier private integration proof
 
@@ -110,6 +112,7 @@ $env:SPARQL_OUTER_AUTH_TOKEN='<Sites bypass token>'
 npm explore sparql-d1 -- npm run test:deployed:schema
 ```
 
-The verifier fails unless the deployed catalog contains a STRICT `rdf_quads`
-table and all four expected covering indexes in exact column order. Remove the
-temporary schema route, admin route, and administrator token afterward.
+The verifier fails unless the deployed catalog contains strict `rdf_quads` and
+`rdf_patch_guards` tables and the four effective indexes (the UNIQUE autoindex
+plus three named cyclic indexes) in exact column order. Remove the temporary
+schema route, admin route, and administrator token afterward.

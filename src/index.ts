@@ -6,11 +6,18 @@ export type {
 export {
   D1QuadSource,
   D1QuadStore,
+  QuadPatchConflictError,
+  applyQuadPatch,
   deleteQuads,
   deleteMatchingQuads,
   insertQuads,
 } from './d1-source.js';
-export type { D1QuadSourceOptions, QueryObservation } from './d1-source.js';
+export type {
+  D1QuadSourceOptions,
+  QuadPatch,
+  QuadPatchResult,
+  QueryObservation,
+} from './d1-source.js';
 export {
   expectedStoreIndexes,
   initializeStore,

@@ -1,8 +1,12 @@
 import type * as RDF from '@rdfjs/types';
-import { wrap } from 'asynciterator';
+import { BufferedIterator, wrap } from 'asynciterator';
 import { EventEmitter } from 'node:events';
 import { DataFactory } from 'rdf-data-factory';
-import type { D1DatabaseLike, D1ResultLike } from './d1-types.js';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from './d1-types.js';
 import { decodeTerm, encodeTerm } from './term-codec.js';
 
 const SELECT_COLUMNS = [
@@ -29,6 +33,15 @@ interface QuadRow {
   graph_json: string;
 }
 
+interface PageQuadRow extends QuadRow {
+  subject_key: string;
+  predicate_key: string;
+  object_key: string;
+  graph_key: string;
+}
+
+type QuadCursor = readonly [string, string, string, string];
+
 interface CountRow {
   count: number;
 }
@@ -43,6 +56,27 @@ export interface QueryObservation {
 
 export interface D1QuadSourceOptions {
   observe?: (observation: QueryObservation) => void;
+  /** Enables deterministic keyset pagination when set to a positive integer. */
+  pageSize?: number;
+}
+
+export interface QuadPatch {
+  /** Every required quad must exist at transaction start or nothing changes. */
+  require?: Iterable<RDF.Quad>;
+  delete?: Iterable<RDF.Quad>;
+  insert?: Iterable<RDF.Quad>;
+}
+
+export interface QuadPatchResult {
+  deleted: number;
+  inserted: number;
+}
+
+export class QuadPatchConflictError extends Error {
+  constructor() {
+    super('Quad patch precondition failed');
+    this.name = 'QuadPatchConflictError';
+  }
 }
 
 function concreteTerm(term?: RDF.Term | null): RDF.Term | null {
@@ -72,10 +106,18 @@ function buildWhere(terms: ReadonlyArray<RDF.Term | null>): {
 export class D1QuadSource implements RDF.Source {
   readonly #db: D1DatabaseLike;
   readonly #observe: ((observation: QueryObservation) => void) | undefined;
+  readonly #pageSize: number | undefined;
 
   constructor(db: D1DatabaseLike, options: D1QuadSourceOptions = {}) {
     this.#db = db;
     this.#observe = options.observe;
+    if (
+      options.pageSize !== undefined &&
+      (!Number.isSafeInteger(options.pageSize) || options.pageSize <= 0)
+    ) {
+      throw new RangeError('pageSize must be a positive safe integer');
+    }
+    this.#pageSize = options.pageSize;
   }
 
   match(
@@ -85,6 +127,14 @@ export class D1QuadSource implements RDF.Source {
     graph?: RDF.Term | null,
   ): RDF.Stream<RDF.Quad> {
     const terms = [subject, predicate, object, graph].map(concreteTerm);
+    if (this.#pageSize !== undefined) {
+      return new D1QuadPageIterator(
+        this.#db,
+        terms,
+        this.#pageSize,
+        this.#observe,
+      );
+    }
     return wrap(this.#match(terms));
   }
 
@@ -113,14 +163,7 @@ export class D1QuadSource implements RDF.Source {
       .prepare(`SELECT ${SELECT_COLUMNS} FROM rdf_quads${clause}`)
       .bind(...values)
       .all<QuadRow>();
-    const quads = result.results.map((row) =>
-      new DataViewQuad(
-        decodeTerm(row.subject_json),
-        decodeTerm(row.predicate_json),
-        decodeTerm(row.object_json),
-        decodeTerm(row.graph_json),
-      ).toQuad(),
-    );
+    const quads = result.results.map(rowToQuad);
     this.#emitObservation('match', terms, started, quads.length, result);
     return quads;
   }
@@ -140,6 +183,101 @@ export class D1QuadSource implements RDF.Source {
       ...(result.meta ? { metadata: result.meta } : {}),
     });
   }
+}
+
+class D1QuadPageIterator extends BufferedIterator<RDF.Quad> {
+  readonly #db: D1DatabaseLike;
+  readonly #terms: ReadonlyArray<RDF.Term | null>;
+  readonly #pageSize: number;
+  readonly #observe: ((observation: QueryObservation) => void) | undefined;
+  #cursor: QuadCursor | undefined;
+  #page = 0;
+
+  constructor(
+    db: D1DatabaseLike,
+    terms: ReadonlyArray<RDF.Term | null>,
+    pageSize: number,
+    observe: ((observation: QueryObservation) => void) | undefined,
+  ) {
+    super({ maxBufferSize: pageSize, autoStart: false });
+    this.#db = db;
+    this.#terms = terms;
+    this.#pageSize = pageSize;
+    this.#observe = observe;
+  }
+
+  protected override _read(_count: number, done: () => void): void {
+    void this.#readPage().then(done, (cause: unknown) => {
+      this.destroy(cause instanceof Error ? cause : new Error(String(cause)));
+      done();
+    });
+  }
+
+  async #readPage(): Promise<void> {
+    if (this.done) {
+      return;
+    }
+    const { clause: boundClause, values: boundValues } = buildWhere(
+      this.#terms,
+    );
+    const cursorClause = this.#cursor
+      ? `${boundClause ? ' AND' : ' WHERE'}
+        (subject_key, predicate_key, object_key, graph_key) > (?, ?, ?, ?)`
+      : '';
+    const cursorValues = this.#cursor ? [...this.#cursor] : [];
+    const started = performance.now();
+    const result = await this.#db
+      .prepare(
+        `SELECT ${POSITION_COLUMNS.join(', ')}, ${SELECT_COLUMNS}
+        FROM rdf_quads${boundClause}${cursorClause}
+        ORDER BY ${POSITION_COLUMNS.join(', ')}
+        LIMIT ?`,
+      )
+      .bind(...boundValues, ...cursorValues, this.#pageSize + 1)
+      .all<PageQuadRow>();
+    if (this.done) {
+      return;
+    }
+
+    this.#page += 1;
+    const rows = result.results.slice(0, this.#pageSize);
+    for (const row of rows) {
+      this._push(rowToQuad(row));
+    }
+    const last = rows.at(-1);
+    if (last) {
+      this.#cursor = [
+        last.subject_key,
+        last.predicate_key,
+        last.object_key,
+        last.graph_key,
+      ];
+    }
+    this.#observe?.({
+      operation: 'match',
+      boundPositions: this.#terms.filter(Boolean).length,
+      durationMs: performance.now() - started,
+      returnedRows: rows.length,
+      metadata: {
+        ...result.meta,
+        readMode: 'paginated',
+        page: this.#page,
+        pageSize: this.#pageSize,
+      },
+    });
+    if (result.results.length <= this.#pageSize) {
+      this.close();
+    }
+  }
+}
+
+function rowToQuad(row: QuadRow): RDF.Quad {
+  return new DataViewQuad(
+    decodeTerm(row.subject_json),
+    decodeTerm(row.predicate_json),
+    decodeTerm(row.object_json),
+    decodeTerm(row.graph_json),
+  ).toQuad();
 }
 
 class DataViewQuad {
@@ -166,50 +304,13 @@ export async function insertQuads(
   db: D1DatabaseLike,
   quads: Iterable<RDF.Quad>,
 ): Promise<number> {
-  const rows = [...quads].map((quad) => {
-    const subject = encodeTerm(quad.subject);
-    const predicate = encodeTerm(quad.predicate);
-    const object = encodeTerm(quad.object);
-    const graph = encodeTerm(quad.graph);
-    return {
-      subjectKey: subject.key,
-      subjectJson: subject.json,
-      predicateKey: predicate.key,
-      predicateJson: predicate.json,
-      objectKey: object.key,
-      objectJson: object.json,
-      graphKey: graph.key,
-      graphJson: graph.json,
-    };
-  });
+  const rows = encodeInsertRows(quads);
 
   if (!rows.length) {
     return 0;
   }
   const payload = atomicPayload(rows);
-  const result = await db
-    .prepare(
-      `INSERT INTO rdf_quads (
-        subject_key, subject_json,
-        predicate_key, predicate_json,
-        object_key, object_json,
-        graph_key, graph_json
-      )
-      SELECT
-        json_extract(value, '$.subjectKey'),
-        json_extract(value, '$.subjectJson'),
-        json_extract(value, '$.predicateKey'),
-        json_extract(value, '$.predicateJson'),
-        json_extract(value, '$.objectKey'),
-        json_extract(value, '$.objectJson'),
-        json_extract(value, '$.graphKey'),
-        json_extract(value, '$.graphJson')
-      FROM json_each(?)
-      WHERE true
-      ON CONFLICT(subject_key, predicate_key, object_key, graph_key) DO NOTHING`,
-    )
-    .bind(payload)
-    .run();
+  const result = await prepareInsert(db, payload).run();
   return Number(result.meta?.changes ?? 0);
 }
 
@@ -233,18 +334,140 @@ export async function deleteQuads(
   db: D1DatabaseLike,
   quads: Iterable<RDF.Quad>,
 ): Promise<number> {
-  const rows = [...quads].map((quad) => {
-    return {
-      subjectKey: encodeTerm(quad.subject).key,
-      predicateKey: encodeTerm(quad.predicate).key,
-      objectKey: encodeTerm(quad.object).key,
-      graphKey: encodeTerm(quad.graph).key,
-    };
-  });
+  const rows = encodeDeleteRows(quads);
   if (!rows.length) {
     return 0;
   }
-  const result = await db
+  const result = await prepareDelete(db, atomicPayload(rows)).run();
+  return Number(result.meta?.changes ?? 0);
+}
+
+/**
+ * Atomically applies exact quad deletions followed by idempotent insertions.
+ * All terms and the aggregate payload are validated before D1 is touched.
+ */
+export async function applyQuadPatch(
+  db: D1DatabaseLike,
+  patch: QuadPatch,
+): Promise<QuadPatchResult> {
+  const requireRows = encodeDeleteRows(patch.require ?? []);
+  const deleteRows = encodeDeleteRows(patch.delete ?? []);
+  const insertRows = encodeInsertRows(patch.insert ?? []);
+  if (!deleteRows.length && !insertRows.length) {
+    return { deleted: 0, inserted: 0 };
+  }
+
+  const requirePayload = requireRows.length
+    ? JSON.stringify(requireRows)
+    : null;
+  const deletePayload = deleteRows.length ? JSON.stringify(deleteRows) : null;
+  const insertPayload = insertRows.length ? JSON.stringify(insertRows) : null;
+  assertAtomicPayloadSize(
+    [requirePayload, deletePayload, insertPayload].filter(
+      (payload): payload is string => payload !== null,
+    ),
+  );
+
+  const statements: D1PreparedStatementLike[] = [];
+  let guardResultIndex: number | undefined;
+  let deleteResultIndex: number | undefined;
+  let insertResultIndex: number | undefined;
+  const guardId = requirePayload ? crypto.randomUUID() : undefined;
+  if (requirePayload !== null && guardId !== undefined) {
+    guardResultIndex = statements.length;
+    statements.push(prepareGuard(db, guardId, requirePayload));
+  }
+  if (deletePayload !== null) {
+    deleteResultIndex = statements.length;
+    statements.push(prepareDelete(db, deletePayload, guardId));
+  }
+  if (insertPayload !== null) {
+    insertResultIndex = statements.length;
+    statements.push(prepareInsert(db, insertPayload, guardId));
+  }
+  if (guardId !== undefined) {
+    statements.push(
+      db
+        .prepare('DELETE FROM rdf_patch_guards WHERE patch_id = ?')
+        .bind(guardId),
+    );
+  }
+
+  const results = await db.batch(statements);
+  if (
+    guardResultIndex !== undefined &&
+    Number(results[guardResultIndex]?.meta?.changes ?? 0) !== 1
+  ) {
+    throw new QuadPatchConflictError();
+  }
+  return {
+    deleted:
+      deleteResultIndex === undefined
+        ? 0
+        : Number(results[deleteResultIndex]?.meta?.changes ?? 0),
+    inserted:
+      insertResultIndex === undefined
+        ? 0
+        : Number(results[insertResultIndex]?.meta?.changes ?? 0),
+  };
+}
+
+function encodeInsertRows(quads: Iterable<RDF.Quad>) {
+  return [...quads].map((quad) => {
+    const subject = encodeTerm(quad.subject);
+    const predicate = encodeTerm(quad.predicate);
+    const object = encodeTerm(quad.object);
+    const graph = encodeTerm(quad.graph);
+    return {
+      subjectKey: subject.key,
+      subjectJson: subject.json,
+      predicateKey: predicate.key,
+      predicateJson: predicate.json,
+      objectKey: object.key,
+      objectJson: object.json,
+      graphKey: graph.key,
+      graphJson: graph.json,
+    };
+  });
+}
+
+function encodeDeleteRows(quads: Iterable<RDF.Quad>) {
+  return [...quads].map((quad) => ({
+    subjectKey: encodeTerm(quad.subject).key,
+    predicateKey: encodeTerm(quad.predicate).key,
+    objectKey: encodeTerm(quad.object).key,
+    graphKey: encodeTerm(quad.graph).key,
+  }));
+}
+
+function prepareGuard(
+  db: D1DatabaseLike,
+  guardId: string,
+  requirePayload: string,
+) {
+  return db
+    .prepare(
+      `INSERT INTO rdf_patch_guards (patch_id)
+      SELECT ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM json_each(?) AS required
+        WHERE NOT EXISTS (
+          SELECT 1 FROM rdf_quads AS existing
+          WHERE existing.subject_key = json_extract(required.value, '$.subjectKey')
+            AND existing.predicate_key = json_extract(required.value, '$.predicateKey')
+            AND existing.object_key = json_extract(required.value, '$.objectKey')
+            AND existing.graph_key = json_extract(required.value, '$.graphKey')
+        )
+      )`,
+    )
+    .bind(guardId, requirePayload);
+}
+
+function prepareDelete(db: D1DatabaseLike, payload: string, guardId?: string) {
+  const guardClause = guardId
+    ? ' AND EXISTS (SELECT 1 FROM rdf_patch_guards WHERE patch_id = ?)'
+    : '';
+  return db
     .prepare(
       `DELETE FROM rdf_quads
       WHERE EXISTS (
@@ -253,21 +476,55 @@ export async function deleteQuads(
           AND predicate_key = json_extract(input.value, '$.predicateKey')
           AND object_key = json_extract(input.value, '$.objectKey')
           AND graph_key = json_extract(input.value, '$.graphKey')
-      )`,
+      )${guardClause}`,
     )
-    .bind(atomicPayload(rows))
-    .run();
-  return Number(result.meta?.changes ?? 0);
+    .bind(payload, ...(guardId ? [guardId] : []));
+}
+
+function prepareInsert(db: D1DatabaseLike, payload: string, guardId?: string) {
+  const guardClause = guardId
+    ? 'EXISTS (SELECT 1 FROM rdf_patch_guards WHERE patch_id = ?) AND '
+    : '';
+  return db
+    .prepare(
+      `INSERT INTO rdf_quads (
+        subject_key, subject_json,
+        predicate_key, predicate_json,
+        object_key, object_json,
+        graph_key, graph_json
+      )
+      SELECT
+        json_extract(value, '$.subjectKey'),
+        json_extract(value, '$.subjectJson'),
+        json_extract(value, '$.predicateKey'),
+        json_extract(value, '$.predicateJson'),
+        json_extract(value, '$.objectKey'),
+        json_extract(value, '$.objectJson'),
+        json_extract(value, '$.graphKey'),
+        json_extract(value, '$.graphJson')
+      FROM json_each(?)
+      WHERE ${guardClause}true
+      ON CONFLICT(subject_key, predicate_key, object_key, graph_key) DO NOTHING`,
+    )
+    .bind(payload, ...(guardId ? [guardId] : []));
 }
 
 function atomicPayload(value: unknown): string {
   const payload = JSON.stringify(value);
-  if (new TextEncoder().encode(payload).byteLength > MAX_ATOMIC_WRITE_BYTES) {
+  assertAtomicPayloadSize([payload]);
+  return payload;
+}
+
+function assertAtomicPayloadSize(payloads: string[]): void {
+  const bytes = payloads.reduce(
+    (total, payload) => total + new TextEncoder().encode(payload).byteLength,
+    0,
+  );
+  if (bytes > MAX_ATOMIC_WRITE_BYTES) {
     throw new RangeError(
       `Atomic RDF write exceeds ${MAX_ATOMIC_WRITE_BYTES} bytes; split it at the application boundary`,
     );
   }
-  return payload;
 }
 
 export class D1QuadStore extends D1QuadSource implements RDF.Store {

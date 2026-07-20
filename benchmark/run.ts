@@ -154,6 +154,12 @@ try {
       activeObservations?.push(observation);
     },
   });
+  const paginatedSource = new D1QuadSource(db, {
+    pageSize: 256,
+    observe(observation) {
+      activeObservations?.push(observation);
+    },
+  });
   const engine = new QueryEngine();
   const scenarios: ScenarioResult[] = [];
   const subject = ex('person-1');
@@ -180,6 +186,9 @@ try {
     ),
     await measure('unbound-full-scan', 'rdfjs-source', 3, () =>
       collect(source.match()),
+    ),
+    await measure('paginated-unbound-full-scan', 'rdfjs-source', 3, () =>
+      collect(paginatedSource.match()),
     ),
     await measure('count-all', 'rdfjs-source', 10, () => source.countQuads()),
   );

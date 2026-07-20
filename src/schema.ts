@@ -13,18 +13,20 @@ export const schemaStatements = [
     graph_json TEXT NOT NULL,
     UNIQUE(subject_key, predicate_key, object_key, graph_key)
   ) STRICT`,
-  `CREATE INDEX IF NOT EXISTS rdf_quads_spog_idx
-    ON rdf_quads(subject_key, predicate_key, object_key, graph_key)`,
+  `CREATE TABLE IF NOT EXISTS rdf_patch_guards (
+    patch_id TEXT PRIMARY KEY
+  ) STRICT`,
   `CREATE INDEX IF NOT EXISTS rdf_quads_pogs_idx
     ON rdf_quads(predicate_key, object_key, graph_key, subject_key)`,
   `CREATE INDEX IF NOT EXISTS rdf_quads_ogsp_idx
     ON rdf_quads(object_key, graph_key, subject_key, predicate_key)`,
   `CREATE INDEX IF NOT EXISTS rdf_quads_gspo_idx
     ON rdf_quads(graph_key, subject_key, predicate_key, object_key)`,
+  `DROP INDEX IF EXISTS rdf_quads_spog_idx`,
 ] as const;
 
 export const expectedStoreIndexes = {
-  rdf_quads_spog_idx: [
+  sqlite_autoindex_rdf_quads_1: [
     'subject_key',
     'predicate_key',
     'object_key',
@@ -56,6 +58,11 @@ export interface StoreSchemaInspection {
     sql: string | null;
     strict: boolean;
   };
+  guardTable: {
+    name: 'rdf_patch_guards';
+    sql: string | null;
+    strict: boolean;
+  };
   indexes: Record<string, string[]>;
   valid: boolean;
   errors: string[];
@@ -76,6 +83,15 @@ export async function inspectStoreSchema(
     .all<{ sql: string | null }>();
   const tableSql = tableResult.results[0]?.sql ?? null;
   const strict = tableSql !== null && /\)\s*STRICT\s*$/iu.test(tableSql);
+  const guardTableResult = await db
+    .prepare(
+      "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ? LIMIT 1",
+    )
+    .bind('rdf_patch_guards')
+    .all<{ sql: string | null }>();
+  const guardTableSql = guardTableResult.results[0]?.sql ?? null;
+  const guardTableStrict =
+    guardTableSql !== null && /\)\s*STRICT\s*$/iu.test(guardTableSql);
   const indexes: Record<string, string[]> = {};
   const errors: string[] = [];
 
@@ -83,6 +99,11 @@ export async function inspectStoreSchema(
     errors.push('rdf_quads table is missing');
   } else if (!strict) {
     errors.push('rdf_quads table is not STRICT');
+  }
+  if (!guardTableSql) {
+    errors.push('rdf_patch_guards table is missing');
+  } else if (!guardTableStrict) {
+    errors.push('rdf_patch_guards table is not STRICT');
   }
 
   for (const [indexName, expectedColumns] of Object.entries(
@@ -107,6 +128,11 @@ export async function inspectStoreSchema(
 
   return {
     table: { name: 'rdf_quads', sql: tableSql, strict },
+    guardTable: {
+      name: 'rdf_patch_guards',
+      sql: guardTableSql,
+      strict: guardTableStrict,
+    },
     indexes,
     valid: errors.length === 0,
     errors,

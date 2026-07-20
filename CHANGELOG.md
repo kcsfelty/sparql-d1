@@ -5,6 +5,24 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-20
+
+### Added
+
+- Atomic `applyQuadPatch()` delete/insert transactions with optimistic required
+  quads and workerd concurrency/rollback coverage.
+- Opt-in keyset pagination through `pageSize` and `sourcePageSize`, including
+  cancellation, observation, all-pattern, workerd, and benchmark evidence.
+- An executable Codex Sites Wikibase-style statement application example.
+- A reproducible RDF storage-layout benchmark and documented SQL-pushdown
+  boundary decision.
+
+### Changed
+
+- Removed the redundant explicit SPOG index in favor of the identical UNIQUE
+  autoindex, with a versioned migration and schema-inspection update.
+- Updated installation and integration documentation for the public npm package.
+
 ## [0.1.0] - 2026-07-19
 
 ### Added

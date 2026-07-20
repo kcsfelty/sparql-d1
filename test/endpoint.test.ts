@@ -609,4 +609,28 @@ describe('SPARQL HTTP handler', () => {
     expect(response.status).toBe(200);
     expect(factoryCalls).toBe(1);
   });
+
+  it('enables bounded source pagination through handler options', async () => {
+    const pages: number[] = [];
+    await insertQuads(db, [
+      factory.quad(ex('bob'), ex('name'), factory.literal('Bob')),
+    ]);
+    handle = createSparqlHandler({
+      db,
+      sourcePageSize: 1,
+      observeD1(observation) {
+        if (observation.metadata?.readMode === 'paginated') {
+          pages.push(Number(observation.metadata.page));
+        }
+      },
+    });
+    const response = await handle(
+      new Request(
+        'https://site.test/api/sparql?query=SELECT%20*%20WHERE%20%7B%3Fs%20%3Fp%20%3Fo%7D',
+      ),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(pages.length).toBeGreaterThan(1);
+  });
 });

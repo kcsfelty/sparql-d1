@@ -34,7 +34,7 @@ assert.match(response.headers.get('content-type') ?? '', /^application\/json/u);
 
 const inspection = await response.json();
 const expectedIndexes = {
-  rdf_quads_spog_idx: [
+  sqlite_autoindex_rdf_quads_1: [
     'subject_key',
     'predicate_key',
     'object_key',
@@ -65,6 +65,9 @@ assert.deepEqual(inspection.errors, []);
 assert.equal(inspection.table?.name, 'rdf_quads');
 assert.equal(inspection.table?.strict, true);
 assert.match(inspection.table?.sql ?? '', /\)\s*STRICT\s*$/iu);
+assert.equal(inspection.guardTable?.name, 'rdf_patch_guards');
+assert.equal(inspection.guardTable?.strict, true);
+assert.match(inspection.guardTable?.sql ?? '', /\)\s*STRICT\s*$/iu);
 assert.deepEqual(inspection.indexes, expectedIndexes);
 
 console.log(
@@ -73,6 +76,7 @@ console.log(
     status: response.status,
     table: inspection.table.name,
     strict: inspection.table.strict,
+    guardTable: inspection.guardTable.name,
     indexes: Object.keys(inspection.indexes),
     valid: inspection.valid,
   }),

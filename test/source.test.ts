@@ -6,6 +6,8 @@ import {
   D1QuadSource,
   D1QuadStore,
   MAX_ATOMIC_WRITE_BYTES,
+  QuadPatchConflictError,
+  applyQuadPatch,
   deleteMatchingQuads,
   insertQuads,
 } from '../src/d1-source.js';
@@ -77,6 +79,15 @@ describe('D1QuadSource', () => {
       expect(
         actual.every((quad) => expected.some((item) => item.equals(quad))),
       ).toBe(true);
+      const paginatedActual = await collect(
+        new D1QuadSource(db, { pageSize: 2 }).match(...pattern),
+      );
+      expect(paginatedActual).toHaveLength(expected.length);
+      expect(
+        paginatedActual.every((quad) =>
+          expected.some((item) => item.equals(quad)),
+        ),
+      ).toBe(true);
       await expect(source.countQuads(...pattern)).resolves.toBe(
         expected.length,
       );
@@ -88,6 +99,34 @@ describe('D1QuadSource', () => {
     await expect(
       source.countQuads(null, null, null, factory.defaultGraph()),
     ).resolves.toBe(2);
+  });
+
+  it('reads deterministic bounded pages with per-page observations', async () => {
+    const observations: Array<Record<string, unknown> | undefined> = [];
+    const paginated = new D1QuadSource(db, {
+      pageSize: 2,
+      observe: (observation) => observations.push(observation.metadata),
+    });
+    const actual = await collect(paginated.match());
+
+    expect(actual).toHaveLength(quads.length);
+    expect(
+      actual.every((quad) => quads.some((item) => item.equals(quad))),
+    ).toBe(true);
+    expect(observations).toHaveLength(2);
+    expect(observations).toEqual([
+      expect.objectContaining({ readMode: 'paginated', page: 1, pageSize: 2 }),
+      expect.objectContaining({ readMode: 'paginated', page: 2, pageSize: 2 }),
+    ]);
+  });
+
+  it('rejects invalid pagination sizes', () => {
+    expect(() => new D1QuadSource(db, { pageSize: 0 })).toThrow(
+      /positive safe integer/,
+    );
+    expect(() => new D1QuadSource(db, { pageSize: 1.5 })).toThrow(
+      /positive safe integer/,
+    );
   });
 
   it('deduplicates identical quads', async () => {
@@ -111,6 +150,148 @@ describe('D1QuadSource', () => {
   it('deletes only matching quads', async () => {
     await expect(deleteMatchingQuads(db, ex('alice'))).resolves.toBe(2);
     await expect(source.countQuads()).resolves.toBe(2);
+  });
+
+  it('applies exact deletions and insertions as one quad patch', async () => {
+    const replacement = factory.quad(
+      ex('alice'),
+      ex('name'),
+      factory.literal('Alicia', 'en'),
+    );
+    const result = await applyQuadPatch(db, {
+      delete: [quads[1]!],
+      insert: [replacement, replacement],
+    });
+
+    expect(result).toEqual({ deleted: 1, inserted: 1 });
+    await expect(
+      source.countQuads(
+        quads[1]!.subject,
+        quads[1]!.predicate,
+        quads[1]!.object,
+        quads[1]!.graph,
+      ),
+    ).resolves.toBe(0);
+    await expect(
+      source.countQuads(
+        replacement.subject,
+        replacement.predicate,
+        replacement.object,
+        replacement.graph,
+      ),
+    ).resolves.toBe(1);
+  });
+
+  it('supports empty and overlapping quad patches', async () => {
+    await expect(applyQuadPatch(db, {})).resolves.toEqual({
+      deleted: 0,
+      inserted: 0,
+    });
+    await expect(
+      applyQuadPatch(db, { delete: [quads[0]!], insert: [quads[0]!] }),
+    ).resolves.toEqual({ deleted: 1, inserted: 1 });
+    await expect(
+      source.countQuads(
+        quads[0]!.subject,
+        quads[0]!.predicate,
+        quads[0]!.object,
+        quads[0]!.graph,
+      ),
+    ).resolves.toBe(1);
+  });
+
+  it('patches named graphs, blank nodes, typed literals, and quoted triples', async () => {
+    const namedGraphQuad = factory.quad(
+      factory.blankNode('statement'),
+      ex('label'),
+      factory.literal('étiquette', 'fr'),
+      ex('statements'),
+    );
+    const quoted = factory.quad(
+      ex('measurement'),
+      ex('value'),
+      factory.literal(
+        '7',
+        factory.namedNode('http://www.w3.org/2001/XMLSchema#integer'),
+      ),
+    );
+    const quotedTripleQuad = factory.quad(
+      quoted,
+      ex('source'),
+      ex('reference'),
+    );
+
+    await expect(
+      applyQuadPatch(db, { insert: [namedGraphQuad, quotedTripleQuad] }),
+    ).resolves.toEqual({ deleted: 0, inserted: 2 });
+    await expect(
+      source.countQuads(
+        namedGraphQuad.subject,
+        namedGraphQuad.predicate,
+        namedGraphQuad.object,
+        namedGraphQuad.graph,
+      ),
+    ).resolves.toBe(1);
+    await expect(
+      source.countQuads(
+        quotedTripleQuad.subject,
+        quotedTripleQuad.predicate,
+        quotedTripleQuad.object,
+        quotedTripleQuad.graph,
+      ),
+    ).resolves.toBe(1);
+    await expect(
+      applyQuadPatch(db, { delete: [namedGraphQuad, quotedTripleQuad] }),
+    ).resolves.toEqual({ deleted: 2, inserted: 0 });
+  });
+
+  it('rejects stale patch preconditions without changing data', async () => {
+    const revisionPredicate = ex('revision');
+    const revisionOne = factory.quad(
+      ex('entity'),
+      revisionPredicate,
+      factory.literal('1'),
+    );
+    const revisionTwo = factory.quad(
+      ex('entity'),
+      revisionPredicate,
+      factory.literal('2'),
+    );
+    await insertQuads(db, [revisionOne]);
+    await expect(
+      applyQuadPatch(db, {
+        require: [
+          factory.quad(ex('entity'), revisionPredicate, factory.literal('0')),
+        ],
+        delete: [revisionOne],
+        insert: [revisionTwo],
+      }),
+    ).rejects.toBeInstanceOf(QuadPatchConflictError);
+    await expect(
+      source.countQuads(ex('entity'), revisionPredicate, factory.literal('1')),
+    ).resolves.toBe(1);
+    await expect(
+      source.countQuads(ex('entity'), revisionPredicate, factory.literal('2')),
+    ).resolves.toBe(0);
+  });
+
+  it('rejects an oversized aggregate patch before deleting anything', async () => {
+    const oversized = factory.quad(
+      ex('large-patch'),
+      ex('value'),
+      factory.literal('x'.repeat(MAX_ATOMIC_WRITE_BYTES)),
+    );
+    await expect(
+      applyQuadPatch(db, { delete: [quads[0]!], insert: [oversized] }),
+    ).rejects.toThrow(/split it at the application boundary/);
+    await expect(
+      source.countQuads(
+        quads[0]!.subject,
+        quads[0]!.predicate,
+        quads[0]!.object,
+        quads[0]!.graph,
+      ),
+    ).resolves.toBe(1);
   });
 
   it('implements atomic RDF/JS Store operations', async () => {

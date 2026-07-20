@@ -1,54 +1,34 @@
 # Open-source readiness
 
-This repository remains private and intentionally keeps `private: true` while
-the `0.1.0` release candidate is validated. Do not publish it until every open
-gate below is closed.
+The repository and npm package are public. `sparql-d1@0.1.0` was published with
+npm provenance after three independent clean-room attempts; the final attempt
+passed every package, fresh Codex Site, managed-D1, protocol, security, cleanup,
+and packed-verifier check on 2026-07-20.
 
-## Completed review
+## Completed controls
 
-- MIT license, contribution guide, code of conduct, governance, security,
-  support, roadmap, changelog, maintainer policy, issue forms, and CODEOWNERS
-  are present.
-- The public API, storage format, threat model, performance limitations, and
-  W3C exclusions are documented.
-- A clean Windows clone completes `npm ci && npm run check`; line endings are
-  repository-controlled.
-- The npm name `sparql-d1` was unclaimed when checked on 2026-07-19.
-- `npm audit` reports zero known vulnerabilities, the production dependency
-  license allowlist passes, and Gitleaks 8.30.1 finds no secrets in history.
-- GitHub Actions dependencies are pinned to immutable commit SHAs.
-- Package metadata names the exact source repository, public access policy,
-  and provenance setting; tagged releases verify SemVer/changelog alignment,
-  generate an SBOM and checksums, attest all artifacts, and publish only after
-  the repository becomes public.
-- GitHub vulnerability alerts and automated security fixes are enabled.
-- Repository text contains no local filesystem paths or private email
-  addresses. Required public files, immutable Action references, local-path
-  hygiene, and release wiring are enforced by `npm run readiness:check`.
-- A packed artifact passed the query/update acceptance sequence in a private
-  Codex Site against its real managed D1 binding.
-- GitHub-hosted CI and Security workflows pass on the current private main
-  branch, including Node 22 and 24, W3C conformance, benchmarks, audit,
-  Gitleaks, and CodeQL SARIF verification with zero findings.
+- MIT licensing, contribution, conduct, governance, security, support,
+  roadmap, changelog, maintainer, issue-template, and CODEOWNERS files.
+- Public API, experimental storage format, threat model, performance limits,
+  and explicit W3C exclusions.
+- Green Windows and GitHub-hosted Node 22/24 checks, workerd D1 tests,
+  conformance, benchmarks, audit, license, secret, and CodeQL checks.
+- Pinned GitHub Actions, automated dependency updates, SBOMs, checksums,
+  artifact attestations, and public-repository-only npm provenance publishing.
+- A fresh-project independent validation using only the packed public material,
+  including real Codex Sites deployment and managed D1, followed by removal of
+  temporary writable/schema routes, credentials, and RDF test data.
+- Public npm installation is the primary consumer path; packed archives remain
+  a maintainer workflow for testing unreleased bytes.
 
-## Release gates
+## Operational follow-ups
 
-- [x] Pass the end-to-end query/update suite in a deployed Codex Site with a
-      real managed D1 binding; evidence is in `docs/deployed-e2e.md`.
-- [x] Require green GitHub-hosted CI and Security workflows. While private code
-      scanning publication is unavailable, CI retains CodeQL SARIF as an
-      artifact and fails if it contains findings; publication switches on
-      automatically when the repository becomes public.
-- [ ] Enable main-branch protection or a ruleset. GitHub currently returns 403
-      for branch protection on this private repository/account plan.
-- [ ] Have an independent, context-free validator follow the Codex Sites
-      example from a fresh project using `docs/integration-validation.md` and
-      record every correction. An independent agent is acceptable for the
-      experimental technical sign-off and must be labeled as such.
-- [ ] After clean-room sign-off, remove `private: true`, reconfirm npm ownership
-      of `sparql-d1`, and configure the package trusted publisher. The
-      provenance-bearing publish step is already gated on public visibility.
-- [x] Use GitHub Issues for public support and explicitly accept the sole-
-      maintainer bus-factor risk for the experimental `0.1.x` series.
+- Keep main-branch rules, vulnerability alerts, automated security fixes, and
+  release workflows enabled as repository settings evolve.
+- Replace the temporary short-lived npm release token with npm trusted
+  publishing, then remove the fallback GitHub environment secret and workflow
+  fallback.
+- Continue to state the sole-maintainer bus-factor risk for the experimental
+  `0.x` series and use GitHub Issues for public support.
 
-The remaining operational gates are not package correctness claims.
+These are operational controls, not hidden package-correctness gates.

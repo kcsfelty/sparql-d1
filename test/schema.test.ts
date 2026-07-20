@@ -23,6 +23,11 @@ describe('store schema inspection', () => {
         sql: expect.stringMatching(/\)\s*STRICT$/u),
         strict: true,
       },
+      guardTable: {
+        name: 'rdf_patch_guards',
+        sql: expect.stringMatching(/\)\s*STRICT$/u),
+        strict: true,
+      },
       indexes: expectedStoreIndexes,
       valid: true,
       errors: [],
@@ -33,13 +38,14 @@ describe('store schema inspection', () => {
     const missing = await inspectStoreSchema(db);
     expect(missing.valid).toBe(false);
     expect(missing.errors).toContain('rdf_quads table is missing');
+    expect(missing.errors).toContain('rdf_patch_guards table is missing');
 
     await initializeStore(db);
-    await db.prepare('DROP INDEX rdf_quads_spog_idx').run();
+    await db.prepare('DROP INDEX rdf_quads_pogs_idx').run();
     const malformed = await inspectStoreSchema(db);
     expect(malformed.valid).toBe(false);
     expect(malformed.errors).toContain(
-      'rdf_quads_spog_idx has columns [], expected [subject_key, predicate_key, object_key, graph_key]',
+      'rdf_quads_pogs_idx has columns [], expected [predicate_key, object_key, graph_key, subject_key]',
     );
   });
 });

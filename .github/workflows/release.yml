@@ -39,8 +39,8 @@ jobs:
       - name: Publish to npm from the public repository
         if: ${{ github.event.repository.private == false }}
         env:
-          # Bootstrap authentication for the first publish. npm OIDC takes
-          # precedence after the package's trusted publisher is configured.
+          # Temporary fallback until npm trusted publishing is configured.
+          # OIDC takes precedence after that publisher is active.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish ./*.tgz --access public --provenance
       - env:

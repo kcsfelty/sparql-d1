@@ -5,9 +5,10 @@ Cloudflare D1. It is designed for Cloudflare Workers and Codex Sites projects
 that need a standards-based RDF query surface without operating a separate
 triplestore.
 
-> Status: private `0.1.0` release candidate. The first public release is
-> experimental: SPARQL/RDF correctness is extensively tested, while the
-> TypeScript API and physical D1 schema may change before 1.0.
+> Status: public experimental release. SPARQL/RDF correctness is extensively
+> tested, while the TypeScript API and physical D1 schema may change before
+> 1.0. See the [npm package](https://www.npmjs.com/package/sparql-d1) and
+> [v0.2.0 release](https://github.com/kcsfelty/sparql-d1/releases/tag/v0.2.0).
 
 ## What it provides
 
@@ -15,6 +16,8 @@ triplestore.
   triple terms.
 - A D1-backed RDF/JS `Source` with all 16 bound/unbound quad-pattern shapes.
 - An opt-in RDF/JS `Store` with atomic insert/delete streams for SPARQL Update.
+- Atomic application-level delete/insert patches with optimistic preconditions.
+- Opt-in keyset pagination for bounded-memory D1 pattern reads.
 - A Worker-compatible SPARQL HTTP handler with result content negotiation.
 - Secure defaults: read-only operation, disabled `SERVICE` and remote `LOAD`,
   bounded query shape, timeout, and serialized-result limits.
@@ -27,22 +30,19 @@ triplestore.
 
 ## Install
 
-The package is not published while the repository remains private. Build a
-tarball from an authorized clean clone:
+Install the public package:
 
 ```sh
-npm ci
-npm pack
-# Then, from the Sites project:
-npm install ./vendor/sparql-d1-0.1.0.tgz
+npm install sparql-d1
 ```
 
-Do not install the Git repository directly: generated `dist` files are not
-committed. After the public release, installation will be `npm install
-sparql-d1`.
+Maintainers validating an unreleased commit can run `npm pack` and install the
+resulting archive. Do not install the Git repository directly: generated
+`dist` files are not committed.
 
-Apply `migrations/0001_rdf_quads.sql` to the site's D1 database before serving
-queries.
+Apply the numbered files in `migrations/` to the site's D1 database in order
+before serving queries. Existing `0.1.x` stores must apply
+`0002_drop_redundant_spog.sql` before using atomic patch preconditions.
 
 ## Codex Sites route
 
@@ -101,6 +101,16 @@ const bindings = await engine.queryBindings(
 );
 ```
 
+Set `pageSize` on `D1QuadSource`, or `sourcePageSize` on the HTTP handler, to
+read broad patterns in bounded keyset pages. The default remains the original
+single-read semantic baseline.
+
+For domain edits that replace related RDF facts together, use
+`applyQuadPatch(db, { require, delete, insert })`. The Wikibase-style example
+under `examples/codex-site` demonstrates ranked statements, qualifiers,
+references, truthy triples, and optimistic entity revisions as site-owned
+application behavior; it does not depend on Wikipedia, Wikidata, or Wikibase.
+
 ## Security
 
 The package prevents SPARQL Update and federated `SERVICE` execution unless
@@ -122,6 +132,7 @@ npm ci
 npm run check
 npm run conformance
 npm run benchmark:check
+npm run benchmark:storage:check
 ```
 
 `npm run check` formats, lints, type-checks, executes coverage and D1
@@ -142,10 +153,12 @@ be split deliberately by the host application.
 
 ## Current limitations
 
-- The baseline source buffers each individual D1 pattern result before handing
-  it to Comunica. Final HTTP serialization is streamed and bounded.
-- SPARQL joins are evaluated by Comunica. SQL algebra pushdown is a planned
-  optimization and must remain semantically equivalent to this baseline.
+- The default source buffers each individual D1 pattern result. Opt-in keyset
+  pagination bounds rows held by the source, but is not a snapshot across pages.
+- SPARQL joins are evaluated by Comunica. The RDF/JS `sourceFactory` receives
+  quad patterns, not whole query algebra, so SQL join pushdown requires a
+  different Comunica integration boundary; see
+  [docs/sql-pushdown-decision.md](docs/sql-pushdown-decision.md).
 - The package stores RDF in its own quad table. It does not infer RDF mappings
   from arbitrary relational application tables.
 - Entailment regimes and the Graph Store HTTP Protocol are out of scope for the
@@ -157,7 +170,7 @@ be split deliberately by the host application.
   The package imports its static engine entry point directly so Components.js
   filesystem configuration is not evaluated in Workers.
 
-The current private-to-public release gates are tracked in
+Public-release controls and remaining operational follow-ups are tracked in
 [docs/open-source-readiness.md](docs/open-source-readiness.md).
 
 ## License

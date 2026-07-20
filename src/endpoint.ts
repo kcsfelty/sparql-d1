@@ -2,7 +2,7 @@ import type { QueryEngine } from '@comunica/query-sparql/lib/QueryEngine.js';
 import type * as RDF from '@rdfjs/types';
 import { translate } from 'sparqlalgebrajs';
 import { D1QuadSource, D1QuadStore } from './d1-source.js';
-import type { QueryObservation } from './d1-source.js';
+import type { D1QuadSourceOptions, QueryObservation } from './d1-source.js';
 import type { D1DatabaseLike } from './d1-types.js';
 
 const QUERY_RESULT_MEDIA_TYPES = [
@@ -45,9 +45,8 @@ export type ServicePolicy = (
   request: Request,
 ) => boolean | Promise<boolean>;
 
-export interface D1SourceFactoryOptions {
+export interface D1SourceFactoryOptions extends D1QuadSourceOptions {
   readOnly: boolean;
-  observe?: (observation: QueryObservation) => void;
 }
 
 export type D1SourceFactory = (
@@ -58,6 +57,7 @@ export type D1SourceFactory = (
 export interface SparqlHandlerOptions {
   db: D1DatabaseLike;
   sourceFactory?: D1SourceFactory;
+  sourcePageSize?: number;
   engine?: QueryEngine;
   authenticate?: (
     request: Request,
@@ -108,6 +108,9 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
   const sourceOptions = {
     readOnly,
     ...(options.observeD1 ? { observe: options.observeD1 } : {}),
+    ...(options.sourcePageSize === undefined
+      ? {}
+      : { pageSize: options.sourcePageSize }),
   };
   const source = options.sourceFactory
     ? options.sourceFactory(options.db, sourceOptions)

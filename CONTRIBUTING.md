@@ -1,13 +1,14 @@
 # Contributing
 
-The project is private during its initial development. External contribution
-instructions become active when the repository is opened.
+Contributions to the public repository are welcome. For substantial behavior
+or schema changes, open an issue first so the compatibility scope is explicit.
 
 ## Development workflow
 
 1. Create a focused branch from `main`.
 2. Add or update tests before changing observable behavior.
-3. Run `npm run check` and `npm run benchmark`.
+3. Run `npm run check`, `npm run benchmark:check`, and any focused benchmark
+   affected by the change.
 4. Update architecture, security, conformance, and changelog documents when
    their contracts change.
 5. Open a pull request explaining the behavior, evidence, risks, and any

@@ -30,13 +30,20 @@ const requiredFiles = [
   'docs/integration-validation.md',
   'docs/open-source-readiness.md',
   'docs/performance.md',
+  'docs/sql-pushdown-decision.md',
+  'docs/storage-evaluation.md',
   'docs/testing.md',
   'docs/threat-model.md',
   'examples/codex-site/app/api/sparql/route.ts',
   'examples/codex-site/app/api/sparql/admin/route.ts',
   'examples/codex-site/app/api/sparql/schema/route.ts',
   'examples/codex-site/drizzle/0000_rdf_quads.sql',
+  'examples/codex-site/drizzle/0001_drop_redundant_spog.sql',
+  'examples/codex-site/wikibase-style-statements.md',
+  'examples/codex-site/wikibase-style-statements.ts',
   'migrations/0001_rdf_quads.sql',
+  'migrations/0002_drop_redundant_spog.sql',
+  'scripts/wikibase-example-check.ts',
 ];
 
 const repositoryFiles = execFileSync('git', [
@@ -61,11 +68,32 @@ const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
 assert.equal(packageJson.license, 'MIT');
 assert.equal(packageJson.publishConfig?.access, 'public');
 assert.equal(packageJson.publishConfig?.provenance, true);
+assert.equal(packageJson.private, false);
 assert.match(packageJson.engines?.node ?? '', /^>=22/);
 assert.equal(
   packageJson.repository?.url,
   'https://github.com/kcsfelty/sparql-d1.git',
 );
+
+for (const file of [
+  'README.md',
+  'CONTRIBUTING.md',
+  'SECURITY.md',
+  'docs/integration-validation.md',
+  'docs/open-source-readiness.md',
+  'examples/codex-site/README.md',
+]) {
+  const text = readFileSync(file, 'utf8');
+  for (const stale of [
+    'repository remains private',
+    'package is not published',
+    'packed private artifact',
+    'private during its initial development',
+    'No public version is supported',
+  ]) {
+    assert.ok(!text.includes(stale), `${file} contains stale text: ${stale}`);
+  }
+}
 
 for (const workflow of repositoryFiles.filter((file) =>
   file.startsWith('.github/workflows/'),
