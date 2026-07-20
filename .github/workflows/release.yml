@@ -19,6 +19,12 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Verify the release commit belongs to main
+        shell: bash
+        run: |
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          release_commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          git merge-base --is-ancestor "$release_commit" refs/remotes/origin/main
       - run: npm ci
       - run: npm run check
       - name: Verify release metadata and artifact contents
