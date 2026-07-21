@@ -60,19 +60,10 @@ for (const required of [
   'docs/sql-pushdown-decision.md',
   'docs/storage-evaluation.md',
   'docs/threat-model.md',
-  'examples/codex-site/README.md',
-  'examples/codex-site/.openai/hosting.json',
-  'examples/codex-site/app/api/sparql/route.ts',
-  'examples/codex-site/app/api/sparql/admin/route.ts',
-  'examples/codex-site/app/api/sparql/schema/route.ts',
-  'examples/codex-site/drizzle/0000_rdf_quads.sql',
-  'examples/codex-site/drizzle/0001_drop_redundant_spog.sql',
-  'examples/codex-site/wikibase-style-statements.md',
-  'examples/codex-site/wikibase-style-statements.ts',
+  'examples/wikibase-style-statements.md',
+  'examples/wikibase-style-statements.ts',
   'migrations/0001_rdf_quads.sql',
   'migrations/0002_drop_redundant_spog.sql',
-  'scripts/deployed-e2e.mjs',
-  'scripts/deployed-schema-check.mjs',
 ]) {
   assert.ok(files.has(required), `packed artifact is missing ${required}`);
 }

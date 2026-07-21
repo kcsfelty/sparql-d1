@@ -2,7 +2,8 @@
 
 ## Request path
 
-1. A Sites route receives a SPARQL Protocol GET or POST request.
+1. A host application passes a SPARQL Protocol GET or POST request to the
+   handler.
 2. The endpoint authenticates the request and enforces byte, algebra, update,
    federation, timeout, and result limits.
 3. Comunica parses the query and calls the RDF/JS source with quad patterns.
@@ -12,6 +13,10 @@
 
 The D1 binding is injected by the host. The package never discovers databases,
 stores Cloudflare credentials, or assumes a physical SQLite file.
+
+The published Worker entries require `nodejs_compat`. The RDF/JS Store surface
+uses `node:events`, and Diamond verifies this declared package contract by
+bundling and executing an exact packed consumer in Miniflare/workerd.
 
 ## Storage
 

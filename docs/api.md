@@ -1,6 +1,8 @@
 # API reference
 
-All APIs are ESM and require Node.js 22 or a compatible Workers runtime.
+All APIs are ESM and require Node.js 22 or a Workers runtime configured with
+the `nodejs_compat` compatibility flag. Diamond's maintained Worker fixtures use
+compatibility date `2026-07-19`; consumers may use a newer compatible date.
 
 ## Endpoint
 
@@ -167,8 +169,8 @@ validated recursively, cannot be cyclic, and must use a default-graph component.
 - `schemaStatements` exposes those statements for migration tooling.
 - `inspectStoreSchema(db)` reads only the `rdf_quads` SQLite catalog entries
   and reports table/patch-guard strictness, expected index column order, and validation
-  errors. It is intended for controlled deployment verification, not a public
-  application endpoint.
+  errors. It is intended for package and application schema diagnostics, not a
+  public application endpoint.
 - `encodeTerm(term)` and `decodeTerm(json)` provide the canonical lossless term
   representation used by the table.
 

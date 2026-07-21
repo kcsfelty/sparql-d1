@@ -55,6 +55,6 @@ An optimization is acceptable only when it:
 4. retains the simple RDF/JS implementation as an oracle until the optimized
    path has equivalent evidence.
 
-The real Codex Sites timings, including cold-engine behavior, are recorded in
-`docs/deployed-e2e.md` because local workerd timings do not substitute for a
-deployed Worker measurement.
+These local workerd measurements establish a reproducible package baseline;
+they do not predict hosted latency or qualify a deployed application. The agent
+creating an application owns workload-specific hosted measurements.

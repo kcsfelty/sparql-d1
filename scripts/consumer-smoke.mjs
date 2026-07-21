@@ -1,7 +1,19 @@
+import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { Miniflare } from 'miniflare';
+
+const require = createRequire(import.meta.url);
 
 const npmCli = process.env.npm_execpath;
 if (!npmCli) {
@@ -69,13 +81,114 @@ if (
 ) {
   throw new Error('Packed metadata differs from the source package');
 }
-for (const path of [
-  'scripts/deployed-e2e.mjs',
-  'scripts/deployed-schema-check.mjs',
-  'SECURITY.md',
-]) {
-  if (!existsSync(join(root, 'node_modules', packagePath, path))) {
-    throw new Error(`Packed artifact is missing ${path}`);
-  }
+
+const workerPath = join(root, 'worker.mjs');
+const wranglerPath = join(root, 'wrangler.jsonc');
+const wranglerOutputPath = join(process.cwd(), '.wrangler');
+mkdirSync(wranglerOutputPath, { recursive: true });
+const bundlePath = mkdtempSync(join(wranglerOutputPath, 'exact-package-'));
+writeFileSync(
+  workerPath,
+  `
+    import { initializeStore } from '@gnolith/diamond';
+    import { createSparqlHandler } from '@gnolith/diamond/endpoint';
+
+    export default {
+      async fetch(request, env) {
+        await initializeStore(env.DB);
+        return createSparqlHandler({ db: env.DB, readOnly: false })(request);
+      },
+    };
+  `,
+);
+writeFileSync(
+  wranglerPath,
+  JSON.stringify({
+    name: 'diamond-exact-package-check',
+    main: 'worker.mjs',
+    compatibility_date: '2026-07-19',
+    compatibility_flags: ['nodejs_compat'],
+  }),
+);
+const wranglerPackage = require.resolve('wrangler/package.json');
+execFileSync(
+  process.execPath,
+  [
+    join(dirname(wranglerPackage), 'bin', 'wrangler.js'),
+    'deploy',
+    '--dry-run',
+    '--config',
+    wranglerPath,
+    '--outdir',
+    bundlePath,
+  ],
+  { cwd: root, stdio: 'inherit' },
+);
+
+const bundledWorker = readdirSync(bundlePath).find((file) =>
+  file.endsWith('.js'),
+);
+assert.ok(bundledWorker, 'Wrangler did not emit a Worker module');
+const bundledWorkerPath = join(bundlePath, bundledWorker);
+const miniflare = new Miniflare({
+  modules: true,
+  scriptPath: bundledWorkerPath,
+  compatibilityDate: '2026-07-19',
+  compatibilityFlags: ['nodejs_compat'],
+  d1Databases: { DB: 'diamond-exact-package-check' },
+});
+try {
+  const emptyUrl = new URL('https://worker.test/api/sparql');
+  emptyUrl.searchParams.set('query', 'ASK { ?s ?p ?o }');
+  const emptyResponse = await miniflare.dispatchFetch(emptyUrl, {
+    headers: { accept: 'application/sparql-results+json' },
+  });
+  assert.equal(emptyResponse.status, 200, await emptyResponse.clone().text());
+  assert.deepEqual(await emptyResponse.json(), {
+    head: {},
+    boolean: false,
+  });
+
+  const insertResponse = await miniflare.dispatchFetch(
+    'https://worker.test/api/sparql',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/sparql-update' },
+      body: `INSERT DATA {
+        <https://example.test/exact-package>
+          <https://example.test/value>
+          "sentinel"
+      }`,
+    },
+  );
+  assert.equal(insertResponse.status, 204, await insertResponse.clone().text());
+
+  const populatedUrl = new URL('https://worker.test/api/sparql');
+  populatedUrl.searchParams.set(
+    'query',
+    `ASK {
+      <https://example.test/exact-package>
+        <https://example.test/value>
+        "sentinel"
+    }`,
+  );
+  const populatedResponse = await miniflare.dispatchFetch(populatedUrl, {
+    headers: { accept: 'application/sparql-results+json' },
+  });
+  assert.equal(
+    populatedResponse.status,
+    200,
+    await populatedResponse.clone().text(),
+  );
+  assert.deepEqual(await populatedResponse.json(), {
+    head: {},
+    boolean: true,
+  });
+} finally {
+  await miniflare.dispose();
+  rmSync(bundlePath, { recursive: true, force: true });
 }
-console.log(`consumer smoke passed for ${installed.name}@${installed.version}`);
+
+console.log(
+  `consumer and nodejs_compat Worker smoke passed for ${installed.name}@${installed.version}`,
+);

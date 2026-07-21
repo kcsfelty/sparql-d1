@@ -7,11 +7,11 @@
 - Workerd D1 integration and differential tests
 - Public repository, protected CI, and reproducible provenance-bearing releases
 
-## Completed conformance and deployment evidence
+## Completed conformance and runtime evidence
 
 - W3C manifest runner and documented exclusions
 - Expanded generated query/dataset differential coverage
-- Deployed Codex Sites end-to-end fixture
+- Exact-package consumer smoke and local module-Worker fixture
 - Cancellation, concurrent access, and migration rollback suites
 
 ## Completed 0.2 performance work
@@ -32,7 +32,7 @@
 
 ## Future experimental work
 
-- Production-guided pagination defaults and larger deployed benchmarks
+- Workload-guided pagination defaults and larger reproducible benchmarks
 - A focused RFC for whole-algebra execution through a Comunica actor, custom
   engine, or companion package
 - A D1 migration/rollback study before any dictionary-encoded storage change

@@ -40,8 +40,6 @@
     "docs",
     "examples",
     "migrations",
-    "scripts/deployed-e2e.mjs",
-    "scripts/deployed-schema-check.mjs",
     "README.md",
     "LICENSE",
     "SECURITY.md",
@@ -49,7 +47,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run example:check && npm run worker:check && npm run worker:test && npm run pack:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run example:check && npm run worker:bundle:check && npm run worker:local:test && npm run pack:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
     "conformance": "npm run build && node scripts/run-conformance.mjs summary",
     "conformance:earl": "npm run build && node scripts/run-conformance.mjs earl",
     "consumer:check": "node scripts/consumer-smoke.mjs",
@@ -62,8 +60,6 @@
     "readiness:check": "node scripts/readiness-check.mjs",
     "release:check": "node scripts/release-check.mjs",
     "test": "vitest run",
-    "test:deployed": "node scripts/deployed-e2e.mjs",
-    "test:deployed:schema": "node scripts/deployed-schema-check.mjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run",
@@ -71,8 +67,8 @@
     "benchmark:check": "npm run --silent benchmark > benchmark.json && node scripts/validate-benchmark.mjs benchmark.json",
     "benchmark:storage": "tsx benchmark/storage.ts",
     "benchmark:storage:check": "npm run --silent benchmark:storage > benchmark-storage.json",
-    "worker:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
-    "worker:test": "node scripts/worker-e2e.mjs"
+    "worker:bundle:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "worker:local:test": "node scripts/worker-e2e.mjs"
   },
   "engines": {
     "node": ">=22"

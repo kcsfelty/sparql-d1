@@ -17,7 +17,7 @@ import {
   replaceWikibaseStyleEntity,
   setWikibaseStyleStatementRank,
   type ExampleEntityDocument,
-} from '../examples/codex-site/wikibase-style-statements.js';
+} from '../examples/wikibase-style-statements.js';
 import { MemoryD1 } from '../test/memory-d1.js';
 
 const factory = new DataFactory();

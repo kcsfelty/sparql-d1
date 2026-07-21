@@ -5,6 +5,17 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+### Changed
+
+- Clarified that Diamond owns published-package runtime verification while
+  complete-site assembly, provisioning, deployment, and hosted acceptance
+  belong to the application-creating agent.
+- Replaced packaged Codex Sites deployment scaffolding and deployed probes with
+  platform-neutral consumer validation and application examples.
+- Documented `nodejs_compat` as a published Worker runtime prerequisite and
+  added exact-package Wrangler/Miniflare D1 write/read coverage for that
+  contract.
+
 ## [0.3.2] - 2026-07-20
 
 ### Added

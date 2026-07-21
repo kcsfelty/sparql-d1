@@ -3,14 +3,13 @@
 **SPARQL ↔ D1: RDF querying and atomic storage for Cloudflare D1.**
 
 `@gnolith/diamond` is a TypeScript RDF/JS source and SPARQL Protocol handler
-backed by Cloudflare D1. It is designed for Cloudflare Workers and Codex Sites
-projects that need a standards-based RDF query surface without operating a
-separate triplestore.
+backed by Cloudflare D1. It is designed for Worker applications that need a
+standards-based RDF query surface without operating a separate triplestore.
 
 > Status: public experimental release. SPARQL/RDF correctness is extensively
 > tested, while the TypeScript API and physical D1 schema may change before
 > 1.0. See the [npm package](https://www.npmjs.com/package/@gnolith/diamond)
-> and [v0.3.1 release](https://github.com/gnolith/diamond/releases/tag/v0.3.1).
+> and [v0.3.2 release](https://github.com/gnolith/diamond/releases/tag/v0.3.2).
 
 ## What it provides
 
@@ -38,43 +37,52 @@ Install the public package:
 npm install @gnolith/diamond
 ```
 
+### Worker runtime requirement
+
+Diamond's published Worker entry points require the Cloudflare Workers
+`nodejs_compat` compatibility flag. The RDF/JS Store surface uses
+`node:events`, and the query engine includes Node-compatible dependencies.
+Configure the flag with a current compatibility date in the Worker project:
+
+```json
+{
+  "compatibility_date": "2026-07-19",
+  "compatibility_flags": ["nodejs_compat"]
+}
+```
+
+The compatibility date shown is the package's maintained test baseline, not a
+requirement to pin applications to that date. Diamond's exact-package consumer
+check installs the packed artifact, bundles its public endpoint entry with this
+flag, and executes it against an ephemeral D1 binding in Miniflare/workerd.
+
 Maintainers validating an unreleased commit can run `npm pack` and install the
 resulting archive. Do not install the Git repository directly: generated
 `dist` files are not committed.
 
-Apply the numbered files in `migrations/` to the site's D1 database in order
+Apply the numbered files in `migrations/` to the application's D1 database in order
 before serving queries. Existing `0.1.x` stores must apply
 `0002_drop_redundant_spog.sql` before using atomic patch preconditions.
 
-## Codex Sites route
+## SPARQL HTTP handler
 
-Declare the logical binding in `.openai/hosting.json`:
-
-```json
-{
-  "d1": "DB",
-  "r2": null
-}
-```
-
-Then create a route whose handler is initialized once at module scope:
+After enabling `nodejs_compat`, create the handler once at module scope with the
+D1-compatible binding supplied by the host application:
 
 ```ts
-import { env } from 'cloudflare:workers';
 import { createSparqlHandler } from '@gnolith/diamond/endpoint';
 
 const handle = createSparqlHandler({
-  db: env.DB,
+  db,
   authenticate(request) {
-    return (
-      request.headers.get('authorization') === `Bearer ${env.SPARQL_TOKEN}`
-    );
+    return authorize(request);
   },
 });
-
-export const GET = handle;
-export const POST = handle;
 ```
+
+The host application owns route assembly, binding and secret provisioning,
+deployment, and hosted acceptance. Diamond's repository checks only the
+published package and its supported local runtimes.
 
 Read-only mode and `SERVICE` rejection are enabled by default. Set
 `readOnly: false` only for an authenticated administrative endpoint. Federation
@@ -109,9 +117,9 @@ single-read semantic baseline.
 
 For domain edits that replace related RDF facts together, use
 `applyQuadPatch(db, { require, delete, insert })`. The Wikibase-style example
-under `examples/codex-site` demonstrates ranked statements, qualifiers,
-references, truthy triples, and optimistic entity revisions as site-owned
-application behavior; it does not depend on Wikipedia, Wikidata, or Wikibase.
+under `examples/` demonstrates ranked statements, qualifiers, references,
+truthy triples, and optimistic entity revisions as application behavior; it
+does not depend on Wikipedia, Wikidata, or Wikibase.
 Use `prepareQuadPatch()` when the same RDF patch must share one atomic D1 batch
 with application-owned rows.
 
@@ -139,13 +147,12 @@ npm run benchmark:check
 npm run benchmark:storage:check
 ```
 
-`npm run check` formats, lints, type-checks, executes coverage and D1
-integration tests, builds the package, bundles a Cloudflare Worker, and
-inspects the npm artifact.
+`npm run check` formats, lints, type-checks, executes coverage and local D1
+integration tests, builds the package, bundles a module-Worker fixture with
+Wrangler in dry-run mode, executes it in Miniflare/workerd, and inspects the
+exact npm artifact. It does not deploy or qualify a complete application site.
 
-The production Codex Sites and D1 acceptance record, including a reusable
-probe, is in [docs/deployed-e2e.md](docs/deployed-e2e.md).
-The independent clean-project procedure is in
+The independent exact-package consumer procedure is in
 [docs/integration-validation.md](docs/integration-validation.md).
 The workerd D1 and Comunica performance baseline is in
 [docs/performance.md](docs/performance.md).

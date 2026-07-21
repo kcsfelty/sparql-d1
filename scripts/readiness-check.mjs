@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const requiredFiles = [
   'LICENSE',
@@ -23,10 +23,8 @@ const requiredFiles = [
   '.github/workflows/release.yml',
   'docs/api.md',
   'docs/architecture.md',
-  'docs/clean-room-agent-prompt.md',
   'docs/completion-audit.md',
   'docs/conformance.md',
-  'docs/deployed-e2e.md',
   'docs/integration-validation.md',
   'docs/open-source-readiness.md',
   'docs/performance.md',
@@ -34,13 +32,8 @@ const requiredFiles = [
   'docs/storage-evaluation.md',
   'docs/testing.md',
   'docs/threat-model.md',
-  'examples/codex-site/app/api/sparql/route.ts',
-  'examples/codex-site/app/api/sparql/admin/route.ts',
-  'examples/codex-site/app/api/sparql/schema/route.ts',
-  'examples/codex-site/drizzle/0000_rdf_quads.sql',
-  'examples/codex-site/drizzle/0001_drop_redundant_spog.sql',
-  'examples/codex-site/wikibase-style-statements.md',
-  'examples/codex-site/wikibase-style-statements.ts',
+  'examples/wikibase-style-statements.md',
+  'examples/wikibase-style-statements.ts',
   'migrations/0001_rdf_quads.sql',
   'migrations/0002_drop_redundant_spog.sql',
   'scripts/wikibase-example-check.ts',
@@ -55,7 +48,7 @@ const repositoryFiles = execFileSync('git', [
 ])
   .toString('utf8')
   .split('\0')
-  .filter(Boolean);
+  .filter((file) => file.length > 0 && existsSync(file));
 const repositoryFileSet = new Set(repositoryFiles);
 for (const file of requiredFiles) {
   assert.ok(
@@ -81,7 +74,6 @@ for (const file of [
   'SECURITY.md',
   'docs/integration-validation.md',
   'docs/open-source-readiness.md',
-  'examples/codex-site/README.md',
 ]) {
   const text = readFileSync(file, 'utf8');
   for (const stale of [
@@ -94,6 +86,62 @@ for (const file of [
     assert.ok(!text.includes(stale), `${file} contains stale text: ${stale}`);
   }
 }
+
+const visibleMarkdown = (file) => {
+  const markdown = readFileSync(file, 'utf8');
+  const visible = [];
+  let cursor = 0;
+
+  while (cursor < markdown.length) {
+    const commentStart = markdown.indexOf('<!--', cursor);
+    if (commentStart === -1) {
+      visible.push(markdown.slice(cursor));
+      break;
+    }
+
+    visible.push(markdown.slice(cursor, commentStart));
+    const commentEnd = markdown.indexOf('-->', commentStart + 4);
+    if (commentEnd === -1) break;
+    cursor = commentEnd + 3;
+  }
+
+  return visible.join(' ').replace(/\s+/gu, ' ');
+};
+for (const [file, requirement] of [
+  [
+    'README.md',
+    "Diamond's published Worker entry points require the Cloudflare Workers `nodejs_compat` compatibility flag.",
+  ],
+  [
+    'docs/api.md',
+    'Workers runtime configured with the `nodejs_compat` compatibility flag.',
+  ],
+  [
+    'docs/integration-validation.md',
+    'Worker consumers must enable the `nodejs_compat` compatibility flag.',
+  ],
+]) {
+  const text = visibleMarkdown(file);
+  assert.ok(
+    text.includes(requirement),
+    `${file} must state the positive Worker runtime requirement`,
+  );
+  assert.doesNotMatch(
+    text,
+    /(?:does not|do not|without) require `nodejs_compat`|`nodejs_compat` is optional/iu,
+    `${file} contradicts the Worker runtime requirement`,
+  );
+}
+const workerConfig = JSON.parse(
+  readFileSync('wrangler.jsonc', 'utf8')
+    .replace(/^\s*\/\/.*$/gmu, '')
+    .replace(/,\s*([}\]])/gu, '$1'),
+);
+assert.deepEqual(
+  workerConfig.compatibility_flags,
+  ['nodejs_compat'],
+  'Worker bundle fixture must declare exactly the supported compatibility flags',
+);
 
 for (const workflow of repositoryFiles.filter((file) =>
   file.startsWith('.github/workflows/'),

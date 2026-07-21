@@ -1,119 +1,86 @@
-# Independent Codex Sites integration validation
+# Published-package integration validation
 
-This checklist is executable by a consumer or an independent validator who did
-not author the package. Record the validator, date, installed package version,
-Sites starter version, and every documentation correction in the pull request
-or issue used for sign-off.
+This procedure validates Diamond's published package contract without assembling,
+provisioning, deploying, or accepting a complete application site. Run it in a
+fresh temporary project so success cannot depend on files from a source checkout.
 
-## Consumer setup
+## Published release
 
-Start in a fresh directory and new Codex task with no inherited project context.
-Create a new Codex Sites project and install the public package:
+Create an empty ESM project with Node.js 22 or newer and install the public
+package:
 
 ```sh
+npm init -y
+npm pkg set type=module
 npm install @gnolith/diamond
 ```
 
-Do not install the Git repository directly; generated `dist` files are
-deliberately not committed. An agent validator should receive the prompt in
-`docs/clean-room-agent-prompt.md` with the version and evidence-output location
-filled in.
+Worker consumers must enable the `nodejs_compat` compatibility flag. This is a
+published-package runtime prerequisite, not an application deployment check.
 
-## Maintainer validation of an unreleased build
+Import both public entry points and assert that the documented exports exist:
 
-For an unreleased commit, the maintainer runs `npm ci`, `npm run check`, and
-`npm pack`, records the archive SHA-256, and gives an independent validator only
-that archive plus public-facing documentation. The validator installs the exact
-archive from a `vendor/` directory:
+```js
+import { D1QuadSource, initializeStore } from '@gnolith/diamond';
+import { createSparqlHandler } from '@gnolith/diamond/endpoint';
 
-```sh
-npm install ./vendor/gnolith-diamond-<version>.tgz
+if (
+  typeof D1QuadSource !== 'function' ||
+  typeof initializeStore !== 'function' ||
+  typeof createSparqlHandler !== 'function'
+) {
+  throw new Error('Expected Diamond exports are unavailable');
+}
 ```
 
-Do not give the validator an existing checkout, configured Site, implementation
-discussion, or unpublished workaround. This artifact workflow validates bytes
-before publication; ordinary consumers should use npm.
+## Unreleased artifact
 
-## Add the endpoint
-
-Copy these paths from `examples/codex-site`, preserving their relative paths:
-
-- `.openai/hosting.json`
-- `app/api/sparql/route.ts`
-- `app/api/sparql/admin/route.ts` only for temporary writable validation
-- `app/api/sparql/schema/route.ts` only for temporary managed-schema validation
-- `drizzle/0000_rdf_quads.sql`
-- `drizzle/0001_drop_redundant_spog.sql`
-
-Set the secret runtime value `SPARQL_TOKEN`. Keep the site owner-only during
-validation, then build and deploy through the normal Codex Sites workflow.
-
-The Sites deployment flow applies the copied Drizzle migration to managed D1.
-The current Sites starter does not expose a package-documented command for
-applying that migration to the fresh D1 used by `vinext dev`; authenticated
-local queries will fail until its schema exists. Treat the first functional D1
-acceptance check as a hosted, owner-only deployment check unless the Sites
-starter documents a local migration workflow. The package's own Miniflare test
-suite separately applies and verifies the same schema in workerd.
-
-Identity-less probes of an owner-only Site need two independent credentials:
-the temporary Sites bypass header and the endpoint's `Authorization` bearer.
-`scripts/deployed-e2e.mjs` supports these as documented in
-`docs/deployed-e2e.md`.
-
-## Acceptance checks
-
-Record evidence for each item:
-
-- The site builds without Node-only module initialization errors.
-- An unauthenticated query receives HTTP 401.
-- An authenticated `ASK {}` receives HTTP 200 and SPARQL Results JSON.
-- Authenticated ASK and SELECT requests with
-  `Accept: application/sparql-results+xml` receive HTTP 200 and well-formed,
-  semantically correct SPARQL Results XML.
-- A `SERVICE <https://example.invalid/>` query receives HTTP 403.
-- A remote `LOAD <https://example.invalid/data.ttl>` update receives HTTP 403,
-  including on the temporary writable validation route.
-- D1 contains strict `rdf_quads` and `rdf_patch_guards` tables, the composite
-  uniqueness autoindex, and three distinct cyclic covering indexes.
-- The installed package's `npm run test:deployed:schema` command receives HTTP
-  200 from the temporary schema route and verifies `STRICT` plus the exact
-  names and column order of all four effective indexes.
-- If testing the authenticated admin route, a named-graph insert is visible to
-  a later SELECT and can be removed. Configure its distinct
-  `SPARQL_ADMIN_TOKEN`, then remove the route after validation unless the site
-  requires an owner-only administrative endpoint.
-
-Mount `app/api/sparql/schema/route.ts` beside the temporary admin
-route and protect both with the distinct `SPARQL_ADMIN_TOKEN`. After deployment,
-run the catalog verifier from the installed package:
+For an unreleased commit, run the package checks and create the archive from the
+source checkout:
 
 ```sh
-SPARQL_SCHEMA_ENDPOINT=https://example.test/api/sparql/schema \
-SPARQL_AUTH_HEADER=Authorization \
-SPARQL_AUTH_TOKEN="$SPARQL_ADMIN_TOKEN" \
-SPARQL_OUTER_AUTH_HEADER=OAI-Sites-Authorization \
-SPARQL_OUTER_AUTH_TOKEN="$SITES_TEST_BYPASS_TOKEN" \
-npm explore @gnolith/diamond -- npm run test:deployed:schema
+npm ci
+npm run check
+npm pack
 ```
 
-The command must report both tables as strict, the uniqueness autoindex plus
-three exact named indexes, and `valid: true`. Remove the schema route together
-with the writable route and administrator secret before the final deployment.
+Record the archive SHA-256, then install that exact archive into a fresh temporary
+project and repeat the public-entry import check. The repository's
 
-For a temporary write-enabled validation endpoint, run the repository's
-`scripts/deployed-e2e.mjs` through `npm run test:deployed`, as documented
-in `docs/deployed-e2e.md`. Run it from the installed package (for example with
-`npm explore @gnolith/diamond -- npm run test:deployed`) to prove the published
-artifact contains the script.
+```sh
+npm run consumer:check
+```
+
+command automates the exact-package pack, install, and import smoke test. It
+also bundles the installed public endpoint entry with `nodejs_compat`, verifies
+an empty D1 result, inserts a sentinel through SPARQL Update, and reads it back
+through the endpoint in Miniflare/workerd.
+
+## Runtime contract checks
+
+Diamond owns package-scoped checks that do not require application deployment:
+
+- `npm run worker:bundle:check` bundles the maintained module-Worker fixture with
+  Wrangler in dry-run mode.
+- `npm run worker:local:test` executes that bundle against an ephemeral D1 binding
+  in Miniflare/workerd.
+- `npm test` covers the D1 contract, endpoint protocol, schema, source, storage,
+  update, and security behavior locally.
+- `npm run conformance` evaluates the applicable W3C SPARQL corpus.
+- `npm run benchmark:check` and `npm run benchmark:storage:check` provide local,
+  reproducible performance and storage evidence.
+
+These checks establish package behavior in supported local runtimes. The agent
+creating a complete site owns its hosting declaration, route assembly, secrets,
+managed-resource provisioning, deployment, and hosted acceptance checks.
 
 ## Sign-off record
 
-- Validator and type (person / independent agent):
+- Validator:
 - Date:
-- Package commit:
-- Package SHA-256:
-- Sites starter/version:
-- Deployment URL or evidence location:
-- Corrections made:
+- Package version or commit:
+- Archive SHA-256, if applicable:
+- Node and npm versions:
+- Commands executed:
 - Result: pass / fail
+- Corrections or package defects found:

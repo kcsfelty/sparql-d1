@@ -1,9 +1,8 @@
 # Open-source readiness
 
-The repository and npm package are public. Diamond was independently validated
-before its move to `@gnolith/diamond`; the final clean-room attempt passed every
-package, fresh Codex Site, managed-D1, protocol, security, cleanup, and
-packed-verifier check on 2026-07-20.
+The repository and npm package are public. Diamond's repository gates validate
+the source, exact package artifact, and supported local Node and Worker
+runtimes. They do not assemble, provision, deploy, or accept a complete site.
 
 ## Completed controls
 
@@ -17,9 +16,9 @@ packed-verifier check on 2026-07-20.
   artifact attestations, and public-repository-only npm provenance publishing.
 - Repository- and release-environment-bound npm OIDC trusted publishing with no
   long-lived token in the release workflow.
-- A fresh-project independent validation using only the packed public material,
-  including real Codex Sites deployment and managed D1, followed by removal of
-  temporary writable/schema routes, credentials, and RDF test data.
+- A fresh temporary consumer installation of the exact packed artifact that
+  imports both public entry points, bundles the endpoint with `nodejs_compat`,
+  and executes it in local workerd without relying on source-checkout files.
 - Public npm installation is the primary consumer path; packed archives remain
   a maintainer workflow for testing unreleased bytes.
 
@@ -31,3 +30,6 @@ packed-verifier check on 2026-07-20.
   `0.x` series and use GitHub Issues for public support.
 
 These are operational controls, not hidden package-correctness gates.
+
+Application agents own their hosting declarations, route assembly, managed
+resources, secrets, deployment, and hosted acceptance evidence.
