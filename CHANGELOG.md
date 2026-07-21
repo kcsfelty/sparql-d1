@@ -5,6 +5,8 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-21
+
 ### Added
 
 - Added SQLite-neutral capability names while preserving the existing D1
