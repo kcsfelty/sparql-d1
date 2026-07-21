@@ -5,6 +5,15 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+### Added
+
+- Added SQLite-neutral capability names while preserving the existing D1
+  declarations and runtime classes.
+- Added the isolated `@gnolith/diamond/node-sqlite` embedded adapter with
+  same-connection atomic batching and explicit lifecycle.
+- Added a namespaced, checksummed migration ledger and conservative legacy
+  Diamond schema adoption.
+
 ## [0.3.3] - 2026-07-21
 
 ### Changed

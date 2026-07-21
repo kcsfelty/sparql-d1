@@ -164,8 +164,13 @@ validated recursively, cannot be cyclic, and must use a default-graph component.
 
 ## Schema and codec
 
-- `initializeStore(db)` applies the idempotent schema statements through
-  transactional D1 `batch()`.
+- `initializeStore(db)` applies or conservatively adopts Diamond's namespaced,
+  checksummed migration history through atomic ordered `batch()` operations.
+- `migrateDiamondStore(db)` is the explicit equivalent used by migration
+  orchestrators. Diamond owns only the `@gnolith/diamond` namespace.
+- `applyNamespacedMigrations()`, `readAppliedMigrations()`, and
+  `recordMigrationAdoption()` provide the package-neutral ledger capability;
+  each package still owns its schema and exact adoption checks.
 - `schemaStatements` exposes those statements for migration tooling.
 - `inspectStoreSchema(db)` reads only the `rdf_quads` SQLite catalog entries
   and reports table/patch-guard strictness, expected index column order, and validation
@@ -177,3 +182,14 @@ validated recursively, cannot be cyclic, and must use a default-graph component.
 The structural D1 interfaces—`D1DatabaseLike`, `D1PreparedStatementLike`, and
 `D1ResultLike`—allow local emulators and test doubles without importing
 Cloudflare's ambient types.
+
+The additive `SqliteDatabaseLike`, `SqlitePreparedStatementLike`, and
+`SqliteResultLike` names describe the same minimum capability without naming a
+host. `SqliteFirstCapability` is optional and is not required by the shared
+contract. `SqliteQuadSource` and `SqliteQuadStore` are neutral aliases for the
+existing runtime classes.
+
+`@gnolith/diamond/node-sqlite` exports `NodeSqliteDatabase` for Node.js 22.16+
+on the Node 22 line, 23.11+ on the Node 23 line, and Node 24+. See
+[embedded SQLite and migrations](embedded-sqlite.md) for file,
+memory, durability, concurrency, busy-timeout, and close semantics.

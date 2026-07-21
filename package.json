@@ -1,11 +1,12 @@
 {
   "name": "@gnolith/diamond",
-  "version": "0.3.3",
-  "description": "SPARQL ↔ D1: RDF querying and atomic storage for Cloudflare D1.",
+  "version": "0.4.0",
+  "description": "SPARQL and atomic RDF storage for Cloudflare D1 and embedded SQLite.",
   "author": "Gnolith contributors",
   "keywords": [
     "cloudflare-d1",
     "comunica",
+    "embedded-sqlite",
     "rdf",
     "rdfjs",
     "sparql"
@@ -33,6 +34,10 @@
     "./endpoint": {
       "types": "./dist/endpoint.d.ts",
       "import": "./dist/endpoint.js"
+    },
+    "./node-sqlite": {
+      "types": "./dist/node-sqlite.d.ts",
+      "import": "./dist/node-sqlite.js"
     }
   },
   "files": [

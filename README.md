@@ -1,6 +1,6 @@
 # Diamond
 
-**SPARQL ↔ D1: RDF querying and atomic storage for Cloudflare D1.**
+**SPARQL and atomic RDF storage for Cloudflare D1 and embedded SQLite.**
 
 `@gnolith/diamond` is a TypeScript RDF/JS source and SPARQL Protocol handler
 backed by Cloudflare D1. It is designed for Worker applications that need a
@@ -26,6 +26,10 @@ standards-based RDF query surface without operating a separate triplestore.
   telemetry vendor.
 - Differential tests against an in-memory RDF source and integration tests
   against workerd's D1 implementation.
+- Additive runtime-neutral SQLite capability names and an isolated embedded
+  `node:sqlite` adapter for headless processes and containers.
+- Namespaced, checksummed migrations with conservative adoption of exact
+  pre-ledger Diamond stores.
 - A CI-gated W3C manifest runner with 490/490 applicable SPARQL 1.1 cases
   passing; exclusions are documented rather than hidden.
 
@@ -63,6 +67,9 @@ resulting archive. Do not install the Git repository directly: generated
 Apply the numbered files in `migrations/` to the application's D1 database in order
 before serving queries. Existing `0.1.x` stores must apply
 `0002_drop_redundant_spog.sql` before using atomic patch preconditions.
+New applications may instead call `initializeStore()`, which applies Diamond's
+checksummed migration history to either D1 or the embedded Node adapter. See
+[embedded SQLite and migrations](docs/embedded-sqlite.md).
 
 ## SPARQL HTTP handler
 
@@ -114,6 +121,12 @@ const bindings = await engine.queryBindings(
 Set `pageSize` on `D1QuadSource`, or `sourcePageSize` on the HTTP handler, to
 read broad patterns in bounded keyset pages. The default remains the original
 single-read semantic baseline.
+
+For a process-local file or `:memory:` database, import
+`NodeSqliteDatabase` from the isolated `@gnolith/diamond/node-sqlite` subpath.
+The root and Worker entry points do not import `node:sqlite`. The adapter is an
+embedded connection, not a server; the host owns file selection and process
+lifecycle.
 
 For domain edits that replace related RDF facts together, use
 `applyQuadPatch(db, { require, delete, insert })`. The Wikibase-style example

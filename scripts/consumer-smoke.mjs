@@ -57,6 +57,7 @@ writeFileSync(
       initializeStore,
     } from '@gnolith/diamond';
     import { createSparqlHandler } from '@gnolith/diamond/endpoint';
+    import { NodeSqliteDatabase } from '@gnolith/diamond/node-sqlite';
     if (
       typeof D1QuadSource !== 'function' ||
       typeof allowServiceUrls !== 'function' ||
@@ -65,6 +66,18 @@ writeFileSync(
     ) {
       throw new Error('Expected package exports are unavailable');
     }
+    const path = ${JSON.stringify(join(root, 'packed-consumer.sqlite'))};
+    const db = new NodeSqliteDatabase(path);
+    await initializeStore(db);
+    await db.prepare('CREATE TABLE consumer_probe (value TEXT NOT NULL)').run();
+    await db.prepare('INSERT INTO consumer_probe VALUES (?)').bind('durable').run();
+    await db.close();
+    const reopened = new NodeSqliteDatabase(path);
+    const probe = await reopened.prepare('SELECT value FROM consumer_probe').all();
+    if (probe.results[0]?.value !== 'durable') {
+      throw new Error('Packed node:sqlite subpath did not persist data');
+    }
+    await reopened.close();
   `,
 );
 execFileSync(process.execPath, [join(root, 'smoke.mjs')], {
@@ -74,6 +87,15 @@ execFileSync(process.execPath, [join(root, 'smoke.mjs')], {
 
 const installed = JSON.parse(
   readFileSync(join(root, 'node_modules', packagePath, 'package.json'), 'utf8'),
+);
+const nodeAdapterTypes = readFileSync(
+  join(root, 'node_modules', packagePath, 'dist', 'node-sqlite.d.ts'),
+  'utf8',
+);
+assert.doesNotMatch(
+  nodeAdapterTypes,
+  /readonly connection|\bexecute</u,
+  'Node adapter declarations expose connection or mutex-bypass internals',
 );
 if (
   installed.private !== sourcePackage.private ||
@@ -130,6 +152,11 @@ const bundledWorker = readdirSync(bundlePath).find((file) =>
 );
 assert.ok(bundledWorker, 'Wrangler did not emit a Worker module');
 const bundledWorkerPath = join(bundlePath, bundledWorker);
+assert.doesNotMatch(
+  readFileSync(bundledWorkerPath, 'utf8'),
+  /node:sqlite/u,
+  'Node SQLite adapter leaked into the Worker bundle',
+);
 const miniflare = new Miniflare({
   modules: true,
   scriptPath: bundledWorkerPath,
