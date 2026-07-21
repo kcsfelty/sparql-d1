@@ -49,6 +49,7 @@ export {
 export type { AppliedMigration, NamespacedMigration } from './migrations.js';
 export { decodeTerm, encodeTerm } from './term-codec.js';
 export type { StoredTerm } from './term-codec.js';
+export { readSqliteBytes } from './sqlite-values.js';
 export { allowServiceUrls, createSparqlHandler } from './endpoint.js';
 export type {
   D1SourceFactory,

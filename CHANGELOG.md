@@ -5,6 +5,15 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+### Added
+
+- Added one shared Node SQLite/workerd D1 capability suite proving conditional
+  `UPDATE ... RETURNING` claim exclusivity, stale-revision no-ops, scalar
+  round-trips, and BLOB round-trips.
+- Added `readSqliteBytes()` to normalize the runtime-native BLOB row shapes:
+  Node returns typed bytes while workerd D1 returns a JSON-compatible byte
+  array.
+
 ### Security
 
 - Temporarily overrode Miniflare's development-only Sharp dependency to

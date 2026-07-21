@@ -9,6 +9,7 @@ import {
   type SqliteDatabaseLike,
   type SqlitePreparedStatementLike,
   type SqliteResultLike,
+  readSqliteBytes,
 } from '../src/index.js';
 
 declare const legacyDb: D1DatabaseLike;
@@ -31,3 +32,6 @@ const d1AsNeutral: SqliteDatabaseLike = legacyDb;
 const neutralAsD1: D1DatabaseLike = neutralDb;
 void d1AsNeutral;
 void neutralAsD1;
+
+const portableBytes: Uint8Array = readSqliteBytes([0, 127, 255]);
+void portableBytes;

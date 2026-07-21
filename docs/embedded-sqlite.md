@@ -39,6 +39,33 @@ Multiple processes may open the same WAL database, but SQLite locking and the
 configured busy timeout still apply; this adapter does not provide distributed
 coordination.
 
+## Portable conditional writes and BLOB rows
+
+Diamond's shared adapter conformance suite submits conditional writes
+concurrently through multiple Node SQLite connections to one persisted WAL
+file and through a real workerd D1 binding. It proves that callers can use
+`all()` with a conditional
+`UPDATE ... RETURNING` statement to implement an optimistic claim: competing
+attempts for one expected revision yield exactly one returned row and one
+change, while a later stale-revision attempt yields no rows and zero changes.
+This proves observable conditional semantics, not that the test forces a
+particular physical lock overlap or scheduling order. Separate child-process
+coverage exercises native lock contention and the bounded busy timeout. The
+database still owns serialization; Diamond does not add retries, queue policy,
+leasing, ranking, or authorization semantics.
+
+Scalar bindings (`string`, integral and real `number`, and `null`) round-trip
+with the same row values in both runtimes. BLOB row representations differ:
+Node's built-in driver returns `Uint8Array`, while workerd D1 returns a
+JSON-compatible number array. Use `readSqliteBytes(value)` from
+`@gnolith/diamond` to obtain a detached `Uint8Array` in portable code. It also
+accepts `ArrayBuffer` and other array-buffer views and rejects malformed byte
+arrays rather than coercing them.
+
+These are low-level SQL capabilities, not a search contract. The package that
+owns a domain table remains responsible for its schema, claim conditions,
+revision meaning, authorization, indexing, and recovery behavior.
+
 ## Migration ledger
 
 The `_gnolith_migrations` STRICT table records a package namespace, stable

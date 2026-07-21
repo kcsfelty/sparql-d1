@@ -12,6 +12,7 @@ proof of the entire system.
 | Protocol       | GET/POST, formats, auth, limits, cancellation, SERVICE/LOAD controls    |
 | Update         | Explicit opt-in, atomic stream completion, later read visibility        |
 | D1             | Miniflare/workerd binding, concurrent writes, batch rollback            |
+| SQL capability | Shared Node/workerd claims, stale revisions, scalar/BLOB round-trips    |
 | Worker runtime | Wrangler dry-run bundle plus local Miniflare/workerd execution          |
 | Consumer       | Pack/install exact bytes; import and run the public Worker entry        |
 | Application    | Execute the Wikibase-style revision/statement usage example             |
