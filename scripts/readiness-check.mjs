@@ -87,10 +87,26 @@ for (const file of [
   }
 }
 
-const visibleMarkdown = (file) =>
-  readFileSync(file, 'utf8')
-    .replace(/<!--[\s\S]*?-->/gu, '')
-    .replace(/\s+/gu, ' ');
+const visibleMarkdown = (file) => {
+  const markdown = readFileSync(file, 'utf8');
+  const visible = [];
+  let cursor = 0;
+
+  while (cursor < markdown.length) {
+    const commentStart = markdown.indexOf('<!--', cursor);
+    if (commentStart === -1) {
+      visible.push(markdown.slice(cursor));
+      break;
+    }
+
+    visible.push(markdown.slice(cursor, commentStart));
+    const commentEnd = markdown.indexOf('-->', commentStart + 4);
+    if (commentEnd === -1) break;
+    cursor = commentEnd + 3;
+  }
+
+  return visible.join(' ').replace(/\s+/gu, ' ');
+};
 for (const [file, requirement] of [
   [
     'README.md',
