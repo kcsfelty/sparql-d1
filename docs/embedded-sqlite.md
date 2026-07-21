@@ -41,14 +41,18 @@ coordination.
 
 ## Portable conditional writes and BLOB rows
 
-Diamond's shared adapter conformance suite runs against multiple Node SQLite
-connections to one persisted WAL file and against a real workerd D1 binding.
-It proves that callers can use `all()` with a conditional
+Diamond's shared adapter conformance suite submits conditional writes
+concurrently through multiple Node SQLite connections to one persisted WAL
+file and through a real workerd D1 binding. It proves that callers can use
+`all()` with a conditional
 `UPDATE ... RETURNING` statement to implement an optimistic claim: competing
 attempts for one expected revision yield exactly one returned row and one
 change, while a later stale-revision attempt yields no rows and zero changes.
-The database still owns serialization; Diamond does not add retries, queue
-policy, leasing, ranking, or authorization semantics.
+This proves observable conditional semantics, not that the test forces a
+particular physical lock overlap or scheduling order. Separate child-process
+coverage exercises native lock contention and the bounded busy timeout. The
+database still owns serialization; Diamond does not add retries, queue policy,
+leasing, ranking, or authorization semantics.
 
 Scalar bindings (`string`, integral and real `number`, and `null`) round-trip
 with the same row values in both runtimes. BLOB row representations differ:

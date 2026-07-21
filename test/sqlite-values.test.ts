@@ -21,7 +21,9 @@ describe('readSqliteBytes', () => {
   });
 
   it('rejects non-binary and invalid byte-array values', () => {
-    for (const value of [null, 'bytes', [1, -1], [1, 256], [1, 1.5]]) {
+    const sparse = new Array<number>(2);
+    sparse[1] = 1;
+    for (const value of [null, 'bytes', [1, -1], [1, 256], [1, 1.5], sparse]) {
       expect(() => readSqliteBytes(value)).toThrow(TypeError);
     }
   });

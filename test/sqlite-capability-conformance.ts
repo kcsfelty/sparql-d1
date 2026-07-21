@@ -88,7 +88,7 @@ export function sqliteCapabilityConformance(
         .prepare(
           `UPDATE capability_claim
            SET owner = ?, revision = revision + 1
-           WHERE id = 1 AND revision = ? AND owner IS NULL
+           WHERE id = 1 AND revision = ?
            RETURNING id, revision, owner`,
         )
         .bind('stale-claimer', 1)

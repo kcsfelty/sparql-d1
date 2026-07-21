@@ -17,10 +17,19 @@ export function readSqliteBytes(value: unknown): Uint8Array {
       value.byteLength,
     ).slice();
   }
-  if (
-    Array.isArray(value) &&
-    value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
-  ) {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (
+        !Object.hasOwn(value, index) ||
+        !Number.isInteger(value[index]) ||
+        value[index] < 0 ||
+        value[index] > 255
+      ) {
+        throw new TypeError(
+          'SQLite BLOB byte arrays must be dense and contain only integers from 0 through 255',
+        );
+      }
+    }
     return Uint8Array.from(value as number[]);
   }
   throw new TypeError(
