@@ -26,6 +26,9 @@
     "access": "public",
     "provenance": true
   },
+  "overrides": {
+    "sharp": "0.35.3"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

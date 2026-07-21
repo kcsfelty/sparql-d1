@@ -5,6 +5,12 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+### Security
+
+- Temporarily overrode Miniflare's development-only Sharp dependency to
+  `0.35.3` while Cloudflare prepares its supported upgrade, clearing the
+  inherited libvips advisory without weakening the repository audit gate.
+
 ## [0.4.0] - 2026-07-21
 
 ### Added
