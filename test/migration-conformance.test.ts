@@ -147,6 +147,64 @@ for (const adapter of adapters) {
       }
     });
 
+    it('fails closed on wrong-table and partial expected indexes', async () => {
+      const wrongTable = await adapter.create();
+      try {
+        await wrongTable.batch(
+          schemaStatements.map((sql) => wrongTable.prepare(sql)),
+        );
+        await wrongTable.prepare('DROP INDEX rdf_quads_pogs_idx').run();
+        await wrongTable
+          .prepare(
+            `CREATE TABLE unrelated_index_target (
+              predicate_key TEXT NOT NULL,
+              object_key TEXT NOT NULL,
+              graph_key TEXT NOT NULL,
+              subject_key TEXT NOT NULL
+            ) STRICT`,
+          )
+          .run();
+        await wrongTable
+          .prepare(
+            `CREATE INDEX rdf_quads_pogs_idx ON unrelated_index_target(
+              predicate_key, object_key, graph_key, subject_key
+            )`,
+          )
+          .run();
+        await expect(initializeStore(wrongTable)).rejects.toThrow(
+          /belongs to unrelated_index_target|partial|ambiguous/u,
+        );
+        expect(
+          await readAppliedMigrations(wrongTable, diamondMigrationNamespace),
+        ).toEqual([]);
+      } finally {
+        await wrongTable.close();
+      }
+
+      const partial = await adapter.create();
+      try {
+        await partial.batch(
+          schemaStatements.map((sql) => partial.prepare(sql)),
+        );
+        await partial.prepare('DROP INDEX rdf_quads_pogs_idx').run();
+        await partial
+          .prepare(
+            `CREATE INDEX rdf_quads_pogs_idx ON rdf_quads(
+              predicate_key, object_key, graph_key, subject_key
+            ) WHERE predicate_key IS NOT NULL`,
+          )
+          .run();
+        await expect(initializeStore(partial)).rejects.toThrow(
+          /unexpected index definition|partial|ambiguous/u,
+        );
+        expect(
+          await readAppliedMigrations(partial, diamondMigrationNamespace),
+        ).toEqual([]);
+      } finally {
+        await partial.close();
+      }
+    });
+
     it('rejects checksum drift and unknown newer migration IDs', async () => {
       const drifted = await adapter.create();
       try {

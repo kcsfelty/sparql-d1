@@ -69,6 +69,16 @@ export const expectedStoreIndexes = {
   ],
 } as const;
 
+const expectedStoreIndexSql: Record<
+  keyof typeof expectedStoreIndexes,
+  string | null
+> = {
+  sqlite_autoindex_rdf_quads_1: null,
+  rdf_quads_pogs_idx: schemaStatements[2],
+  rdf_quads_ogsp_idx: schemaStatements[3],
+  rdf_quads_gspo_idx: schemaStatements[4],
+};
+
 const expectedQuadColumns = [
   ['id', 'INTEGER', 0, 1],
   ['subject_key', 'TEXT', 1, 0],
@@ -93,6 +103,11 @@ interface TableInfoRow {
 interface SchemaObjectRow {
   type: string;
   name: string;
+  tbl_name: string;
+  sql: string | null;
+}
+
+interface IndexCatalogRow {
   tbl_name: string;
   sql: string | null;
 }
@@ -224,6 +239,28 @@ export async function inspectStoreSchema(
   for (const [indexName, expectedColumns] of Object.entries(
     expectedStoreIndexes,
   )) {
+    const catalogResult = await db
+      .prepare(
+        `SELECT tbl_name, sql FROM sqlite_schema
+         WHERE type = 'index' AND name = ?`,
+      )
+      .bind(indexName)
+      .all<IndexCatalogRow>();
+    const catalog = catalogResult.results[0];
+    if (!catalog) {
+      errors.push(`${indexName} is missing from the index catalog`);
+    } else {
+      if (catalog.tbl_name !== 'rdf_quads') {
+        errors.push(
+          `${indexName} belongs to ${catalog.tbl_name}, expected rdf_quads`,
+        );
+      }
+      const expectedSql =
+        expectedStoreIndexSql[indexName as keyof typeof expectedStoreIndexes];
+      if (!matchesExpectedIndexSql(catalog.sql, expectedSql)) {
+        errors.push(`${indexName} has an unexpected index definition`);
+      }
+    }
     const result = await db
       .prepare(`PRAGMA index_info("${indexName}")`)
       .all<{ name: string; seqno: number }>();
@@ -312,4 +349,28 @@ function referencesDiamondTable(sql: string | null): boolean {
     sql !== null &&
     /(?:^|[^a-z0-9_])rdf_(?:quads|patch_guards)(?:$|[^a-z0-9_])/iu.test(sql)
   );
+}
+
+function matchesExpectedIndexSql(
+  actual: string | null,
+  expected: string | null,
+): boolean {
+  if (expected === null) {
+    return actual === null;
+  }
+  if (actual === null) {
+    return false;
+  }
+  const withoutConditional = expected.replace(
+    'CREATE INDEX IF NOT EXISTS',
+    'CREATE INDEX',
+  );
+  return (
+    normalizeSchemaSql(actual) === normalizeSchemaSql(expected) ||
+    normalizeSchemaSql(actual) === normalizeSchemaSql(withoutConditional)
+  );
+}
+
+function normalizeSchemaSql(sql: string): string {
+  return sql.replace(/\s+/gu, ' ').trim().toLowerCase();
 }
