@@ -11,7 +11,7 @@ separately implement `SqliteFirstCapability`.
 
 `@gnolith/diamond/node-sqlite` exports `NodeSqliteDatabase`, an embedded,
 process-local adapter built on `node:sqlite`. It is not a database server or a
-remote protocol. The subpath requires Node.js 22.13.0 or newer and is isolated
+remote protocol. The subpath requires Node.js 22.16.0 or newer and is isolated
 from Diamond's root and Worker entry points.
 
 ```ts

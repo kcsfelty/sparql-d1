@@ -10,7 +10,8 @@ import type {
   SqliteResultLike,
 } from './d1-types.js';
 
-const MINIMUM_NODE_VERSION = [22, 13, 0] as const;
+// StatementSync.columns() was backported to the Node 22 line in 22.16.0.
+const MINIMUM_NODE_VERSION = [22, 16, 0] as const;
 
 export interface NodeSqliteDatabaseOptions {
   /** How long SQLite waits for a conflicting file lock. Defaults to 5 seconds. */
