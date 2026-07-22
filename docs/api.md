@@ -193,3 +193,10 @@ existing runtime classes.
 on the Node 22 line, 23.11+ on the Node 23 line, and Node 24+. See
 [embedded SQLite and migrations](embedded-sqlite.md) for file,
 memory, durability, concurrency, busy-timeout, and close semantics.
+
+Portable persistence code can use `readSqliteBytes()` to normalize native and
+D1 BLOB row shapes. `sqlitePayloadByteLength()` and
+`assertSqlitePayloadSize()` provide explicit UTF-8/BLOB bounds; the latter
+defaults to `MAX_PORTABLE_SQLITE_BIND_BYTES` (1.9 MB of D1-safe headroom).
+Native integers outside JavaScript's safe-number range are returned as
+`bigint`, while workerd D1 rejects bigint bindings explicitly.

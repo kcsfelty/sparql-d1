@@ -49,7 +49,13 @@ export {
 export type { AppliedMigration, NamespacedMigration } from './migrations.js';
 export { decodeTerm, encodeTerm } from './term-codec.js';
 export type { StoredTerm } from './term-codec.js';
-export { readSqliteBytes } from './sqlite-values.js';
+export {
+  MAX_PORTABLE_SQLITE_BIND_BYTES,
+  assertSqlitePayloadSize,
+  readSqliteBytes,
+  sqlitePayloadByteLength,
+} from './sqlite-values.js';
+export type { SqlitePayload } from './sqlite-values.js';
 export { allowServiceUrls, createSparqlHandler } from './endpoint.js';
 export type {
   D1SourceFactory,

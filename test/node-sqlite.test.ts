@@ -73,8 +73,36 @@ describe('NodeSqliteDatabase', () => {
       expect(() => db.prepare('SELECT ?').bind({ bad: true })).toThrow(
         /unsupported SQLite binding/iu,
       );
+      expect(() =>
+        db.prepare('SELECT ?').bind(Number.MAX_SAFE_INTEGER + 1),
+      ).toThrow(/safe numbers or bigint/u);
     } finally {
       await db.close();
+      await db.close();
+    }
+  });
+
+  it('preserves integers outside the safe-number range as bigint', async () => {
+    const db = new NodeSqliteDatabase(':memory:');
+    try {
+      const positive = BigInt(Number.MAX_SAFE_INTEGER) + 2n;
+      const negative = BigInt(Number.MIN_SAFE_INTEGER) - 2n;
+      await db.prepare('CREATE TABLE integers (value INTEGER)').run();
+      await db
+        .prepare('INSERT INTO integers VALUES (?), (?)')
+        .bind(positive, negative)
+        .run();
+      const result = await db
+        .prepare('SELECT value FROM integers ORDER BY value DESC')
+        .all<{ value: number | bigint }>();
+      expect(result.results).toEqual([
+        { value: positive },
+        { value: negative },
+      ]);
+      expect(
+        await db.prepare('SELECT 42 AS value').first<{ value: number }>(),
+      ).toEqual({ value: 42 });
+    } finally {
       await db.close();
     }
   });

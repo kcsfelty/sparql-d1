@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { readSqliteBytes } from '../src/sqlite-values.js';
+import {
+  MAX_PORTABLE_SQLITE_BIND_BYTES,
+  assertSqlitePayloadSize,
+  readSqliteBytes,
+  sqlitePayloadByteLength,
+} from '../src/sqlite-values.js';
 
 describe('readSqliteBytes', () => {
   it('normalizes every supported binary row representation to a copy', () => {
@@ -26,5 +31,23 @@ describe('readSqliteBytes', () => {
     for (const value of [null, 'bytes', [1, -1], [1, 256], [1, 1.5], sparse]) {
       expect(() => readSqliteBytes(value)).toThrow(TypeError);
     }
+  });
+});
+
+describe('portable SQLite payload bounds', () => {
+  it('measures UTF-8 text and binary views without coercion', () => {
+    expect(sqlitePayloadByteLength('hé')).toBe(3);
+    expect(sqlitePayloadByteLength(new Uint8Array([1, 2, 3]))).toBe(3);
+    expect(assertSqlitePayloadSize(['hé', new Uint8Array([1, 2, 3])], 6)).toBe(
+      6,
+    );
+  });
+
+  it('enforces the portable default and caller-selected bounds', () => {
+    expect(MAX_PORTABLE_SQLITE_BIND_BYTES).toBe(1_900_000);
+    expect(() => assertSqlitePayloadSize(['1234'], 3)).toThrow(
+      /configured 3-byte limit/u,
+    );
+    expect(() => assertSqlitePayloadSize([], -1)).toThrow(/maxBytes/u);
   });
 });

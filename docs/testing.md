@@ -3,21 +3,21 @@
 The repository uses layered evidence rather than treating one green suite as
 proof of the entire system.
 
-| Layer          | Evidence                                                                |
-| -------------- | ----------------------------------------------------------------------- |
-| Term codec     | Examples plus generated Unicode literal cases                           |
-| RDF/JS source  | Every one of the 16 quad-pattern binding masks                          |
-| Storage        | Strict schema, uniqueness, named/default graph behavior                 |
-| Differential   | Identical Comunica queries over D1 and an N3 reference store            |
-| Protocol       | GET/POST, formats, auth, limits, cancellation, SERVICE/LOAD controls    |
-| Update         | Explicit opt-in, atomic stream completion, later read visibility        |
-| D1             | Miniflare/workerd binding, concurrent writes, batch rollback            |
-| SQL capability | Shared Node/workerd claims, stale revisions, scalar/BLOB round-trips    |
-| Worker runtime | Wrangler dry-run bundle plus local Miniflare/workerd execution          |
-| Consumer       | Pack/install exact bytes; import and run the public Worker entry        |
-| Application    | Execute the Wikibase-style revision/statement usage example             |
-| Performance    | Buffered/paged D1, SPARQL, and storage: latency, CPU, heap, calls, rows |
-| Conformance    | 490/490 applicable W3C SPARQL 1.1 manifest cases                        |
+| Layer          | Evidence                                                                  |
+| -------------- | ------------------------------------------------------------------------- |
+| Term codec     | Examples plus generated Unicode literal cases                             |
+| RDF/JS source  | Every one of the 16 quad-pattern binding masks                            |
+| Storage        | Strict schema, uniqueness, named/default graph behavior                   |
+| Differential   | Identical Comunica queries over D1 and an N3 reference store              |
+| Protocol       | GET/POST, formats, auth, limits, cancellation, SERVICE/LOAD controls      |
+| Update         | Explicit opt-in, atomic stream completion, later read visibility          |
+| D1             | Miniflare/workerd binding, concurrent writes, batch rollback              |
+| SQL capability | Shared persisted Node/workerd values, batches, faults, reopen, migrations |
+| Worker runtime | Wrangler dry-run bundle plus local Miniflare/workerd execution            |
+| Consumer       | Pack/install exact bytes; import and run the public Worker entry          |
+| Application    | Execute the Wikibase-style revision/statement usage example               |
+| Performance    | Buffered/paged D1, SPARQL, and storage: latency, CPU, heap, calls, rows   |
+| Conformance    | 490/490 applicable W3C SPARQL 1.1 manifest cases                          |
 
 Coverage gates are 90% for statements, branches, functions, and lines. Type
 declarations and the export-only barrel are excluded because execution

@@ -9,7 +9,10 @@ import {
   type SqliteDatabaseLike,
   type SqlitePreparedStatementLike,
   type SqliteResultLike,
+  MAX_PORTABLE_SQLITE_BIND_BYTES,
+  assertSqlitePayloadSize,
   readSqliteBytes,
+  sqlitePayloadByteLength,
 } from '../src/index.js';
 
 declare const legacyDb: D1DatabaseLike;
@@ -34,4 +37,9 @@ void d1AsNeutral;
 void neutralAsD1;
 
 const portableBytes: Uint8Array = readSqliteBytes([0, 127, 255]);
+const payloadBytes: number = assertSqlitePayloadSize(['text', portableBytes]);
+const textBytes: number = sqlitePayloadByteLength('text');
 void portableBytes;
+void payloadBytes;
+void textBytes;
+void MAX_PORTABLE_SQLITE_BIND_BYTES;
