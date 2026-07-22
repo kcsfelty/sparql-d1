@@ -23,6 +23,7 @@ for behavioral evidence.
 | Documentation, licensing, contribution, governance, support, roadmap, and maintenance material      | Proven structurally and reviewed            | `npm run readiness:check` and the named repository files                                                                                        |
 | Continuous dependency, license, secret, vulnerability, and supply-chain checks                      | Proven                                      | green audit, Gitleaks, CodeQL SARIF, Dependabot, immutable Action pins, and license allowlist                                                   |
 | Independent exact-package consumption                                                               | Reproducible                                | `npm run consumer:check` packs, installs, imports, bundles, and executes the public Worker entry in a fresh temporary project                   |
+| Portable SQLite values, ordered atomic batches, restart, and migration fault recovery               | Proven across native and workerd D1         | shared `sqlite-capability-conformance` suite plus the packed prepared-patch/native consumer                                                     |
 | Final public-release review and governance                                                          | Public release complete                     | public repository/package, MIT license, Issues policy, sole-maintainer policy, and provenance release; trusted-publisher cleanup is operational |
 
 ## Semantic qualifications

@@ -8,6 +8,7 @@ import { sqliteCapabilityConformance } from './sqlite-capability-conformance.js'
 describe('Node SQLite capability conformance', () => {
   sqliteCapabilityConformance({
     blobRowShape: 'typed-array',
+    largeIntegerBehavior: 'preserve-bigint',
     async createHarness() {
       const directory = await mkdtemp(
         join(tmpdir(), 'diamond-capability-node-'),
@@ -22,6 +23,12 @@ describe('Node SQLite capability conformance', () => {
       return {
         claimers,
         db: claimers[0]!,
+        async reopen() {
+          await Promise.all(claimers.map((db) => db.close()));
+          const reopened = new NodeSqliteDatabase(path);
+          claimers.push(reopened);
+          return reopened;
+        },
         async close() {
           await Promise.all(claimers.map((db) => db.close()));
           await rm(directory, { recursive: true, force: true });

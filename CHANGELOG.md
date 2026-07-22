@@ -5,14 +5,26 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-22
+
 ### Added
 
 - Added one shared Node SQLite/workerd D1 capability suite proving conditional
-  `UPDATE ... RETURNING` claim exclusivity, stale-revision no-ops, scalar
-  round-trips, and BLOB round-trips.
+  `UPDATE ... RETURNING` claim exclusivity, ordered batch metadata, rollback at
+  every statement boundary and commit, concurrent calls, persisted reopen,
+  migration recovery/drift refusal, scalar round-trips, and BLOB round-trips.
 - Added `readSqliteBytes()` to normalize the runtime-native BLOB row shapes:
   Node returns typed bytes while workerd D1 returns a JSON-compatible byte
   array.
+- Added portable text/BLOB byte measurement and bound enforcement helpers.
+
+### Fixed
+
+- Prevented native SQLite integer precision loss: unsafe numeric bindings are
+  rejected, safe integer rows remain numbers, and larger integer rows remain
+  `bigint`. The shared suite records workerd D1's explicit bigint rejection.
+- Expanded the exact packed-package consumer to compose caller-owned rows with
+  a prepared RDF patch and verify persisted BLOB and integer fidelity.
 
 ### Security
 

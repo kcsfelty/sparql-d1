@@ -53,11 +53,16 @@ writeFileSync(
   `
     import {
       D1QuadSource,
+      MAX_PORTABLE_SQLITE_BIND_BYTES,
       allowServiceUrls,
+      assertSqlitePayloadSize,
       initializeStore,
+      prepareQuadPatch,
+      readSqliteBytes,
     } from '@gnolith/diamond';
     import { createSparqlHandler } from '@gnolith/diamond/endpoint';
     import { NodeSqliteDatabase } from '@gnolith/diamond/node-sqlite';
+    import { DataFactory } from 'rdf-data-factory';
     if (
       typeof D1QuadSource !== 'function' ||
       typeof allowServiceUrls !== 'function' ||
@@ -69,13 +74,42 @@ writeFileSync(
     const path = ${JSON.stringify(join(root, 'packed-consumer.sqlite'))};
     const db = new NodeSqliteDatabase(path);
     await initializeStore(db);
-    await db.prepare('CREATE TABLE consumer_probe (value TEXT NOT NULL)').run();
-    await db.prepare('INSERT INTO consumer_probe VALUES (?)').bind('durable').run();
+    await db.prepare(
+      'CREATE TABLE consumer_probe (value TEXT NOT NULL, bytes BLOB NOT NULL, revision INTEGER NOT NULL)'
+    ).run();
+    const factory = new DataFactory();
+    const quad = factory.quad(
+      factory.namedNode('https://example.test/packed-subject'),
+      factory.namedNode('https://example.test/packed-predicate'),
+      factory.literal('packed-object'),
+    );
+    const prepared = prepareQuadPatch(db, { insert: [quad] });
+    const bytes = Uint8Array.from([0, 127, 255]);
+    if (assertSqlitePayloadSize(['durable', bytes]) >= MAX_PORTABLE_SQLITE_BIND_BYTES) {
+      throw new Error('Packed portable payload-bound helper returned an invalid size');
+    }
+    const results = await db.batch([
+      db.prepare('INSERT INTO consumer_probe VALUES (?, ?, ?)')
+        .bind('durable', bytes, 9007199254740993n),
+      ...prepared.statements,
+    ]);
+    if (prepared.readResult(results, 1).inserted !== 1) {
+      throw new Error('Packed prepared-patch result mapping failed');
+    }
     await db.close();
     const reopened = new NodeSqliteDatabase(path);
-    const probe = await reopened.prepare('SELECT value FROM consumer_probe').all();
-    if (probe.results[0]?.value !== 'durable') {
+    const probe = await reopened.prepare(
+      'SELECT value, bytes, revision FROM consumer_probe'
+    ).first();
+    if (
+      probe?.value !== 'durable' ||
+      probe.revision !== 9007199254740993n ||
+      readSqliteBytes(probe.bytes).join(',') !== '0,127,255'
+    ) {
       throw new Error('Packed node:sqlite subpath did not persist data');
+    }
+    if (await new D1QuadSource(reopened).countQuads(quad.subject) !== 1) {
+      throw new Error('Packed prepared RDF patch did not persist atomically');
     }
     await reopened.close();
   `,

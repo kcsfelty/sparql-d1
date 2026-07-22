@@ -104,13 +104,14 @@ class NodeSqliteStatement
   }
 
   #resultForChanges<T>(statement: StatementSync): SqliteResultLike<T> {
+    statement.setReadBigInts(true);
     const result = statement.run(...this.#values);
     return {
       results: [],
       success: true,
       meta: {
         changes: Number(result.changes),
-        last_row_id: result.lastInsertRowid,
+        last_row_id: normalizeInteger(result.lastInsertRowid),
       },
     };
   }
@@ -119,8 +120,11 @@ class NodeSqliteStatement
     connection: DatabaseSync,
     statement: StatementSync,
   ): SqliteResultLike<T> {
+    statement.setReadBigInts(true);
     const before = readTotalChanges(connection);
-    const results = statement.all(...this.#values) as T[];
+    const results = statement
+      .all(...this.#values)
+      .map(normalizeOutputRow) as T[];
     const changes = readTotalChanges(connection) - before;
     return {
       results,
@@ -245,9 +249,16 @@ function normalizeInput(value: unknown): SQLInputValue {
   if (
     value === null ||
     typeof value === 'string' ||
-    typeof value === 'number' ||
     typeof value === 'bigint'
   ) {
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      throw new RangeError(
+        'SQLite integer bindings must be safe numbers or bigint values',
+      );
+    }
     return value;
   }
   if (typeof value === 'boolean') {
@@ -264,6 +275,29 @@ function normalizeInput(value: unknown): SQLInputValue {
     ).slice();
   }
   throw new TypeError(`Unsupported SQLite binding value: ${typeof value}`);
+}
+
+function normalizeOutputRow(row: object): object {
+  for (const key of Object.keys(row)) {
+    const record = row as Record<string, unknown>;
+    if (typeof record[key] === 'bigint') {
+      record[key] = normalizeInteger(record[key]);
+    }
+  }
+  return row;
+}
+
+function normalizeInteger(value: number | bigint): number | bigint {
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) {
+      throw new RangeError('SQLite returned an unsafe integer as a number');
+    }
+    return value;
+  }
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) &&
+    value >= BigInt(Number.MIN_SAFE_INTEGER)
+    ? Number(value)
+    : value;
 }
 
 function readTotalChanges(connection: DatabaseSync): number {

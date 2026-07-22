@@ -62,6 +62,28 @@ JSON-compatible number array. Use `readSqliteBytes(value)` from
 accepts `ArrayBuffer` and other array-buffer views and rejects malformed byte
 arrays rather than coercing them.
 
+Native SQLite accepts `bigint` bindings and returns integers outside the safe
+JavaScript-number range as `bigint`; safe integer rows remain numbers for
+compatibility. The adapter rejects an integral `number` outside
+`Number.MIN_SAFE_INTEGER` through `Number.MAX_SAFE_INTEGER`, because accepting
+one would preserve an already-rounded value. Workerd D1 rejects `bigint`
+bindings with `D1_TYPE_ERROR`. Portable schemas that require larger integers
+must encode them as validated text instead of assuming cross-runtime bigint
+support.
+
+`sqlitePayloadByteLength()` measures UTF-8 strings and binary bindings, while
+`assertSqlitePayloadSize()` applies a caller-visible aggregate limit before any
+database work. Its default, `MAX_PORTABLE_SQLITE_BIND_BYTES` (1.9 MB), leaves
+headroom below D1's 2 MB bound-value limit. Consumers storing derived text or
+vectors must bound every payload and use BLOBs for binary vectors; the native
+adapter preserves those bytes across close/reopen.
+
+Diamond does not expose FTS or vector-extension APIs. Callers must not infer
+extension availability from the structural interface: workerd D1 and native
+SQLite expose only their actual SQL engines, and a package choosing an
+extension owns explicit capability detection and a clear unsupported-runtime
+failure. SPARQL remains a separate exact RDF query path.
+
 These are low-level SQL capabilities, not a search contract. The package that
 owns a domain table remains responsible for its schema, claim conditions,
 revision meaning, authorization, indexing, and recovery behavior.

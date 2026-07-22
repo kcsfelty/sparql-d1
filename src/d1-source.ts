@@ -8,6 +8,10 @@ import type {
   D1ResultLike,
 } from './d1-types.js';
 import { decodeTerm, encodeTerm } from './term-codec.js';
+import {
+  MAX_PORTABLE_SQLITE_BIND_BYTES,
+  assertSqlitePayloadSize,
+} from './sqlite-values.js';
 
 const SELECT_COLUMNS = [
   'subject_json',
@@ -24,7 +28,7 @@ const POSITION_COLUMNS = [
 ] as const;
 
 /** Leaves headroom below D1's 2 MB maximum bound string size. */
-export const MAX_ATOMIC_WRITE_BYTES = 1_900_000;
+export const MAX_ATOMIC_WRITE_BYTES = MAX_PORTABLE_SQLITE_BIND_BYTES;
 
 interface QuadRow {
   subject_json: string;
@@ -723,13 +727,12 @@ function atomicPayload(value: unknown): string {
 }
 
 function assertAtomicPayloadSize(payloads: string[]): void {
-  const bytes = payloads.reduce(
-    (total, payload) => total + new TextEncoder().encode(payload).byteLength,
-    0,
-  );
-  if (bytes > MAX_ATOMIC_WRITE_BYTES) {
+  try {
+    assertSqlitePayloadSize(payloads, MAX_ATOMIC_WRITE_BYTES);
+  } catch (cause) {
     throw new RangeError(
       `Atomic RDF write exceeds ${MAX_ATOMIC_WRITE_BYTES} bytes; split it at the application boundary`,
+      { cause },
     );
   }
 }
