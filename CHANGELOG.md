@@ -5,6 +5,8 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-22
+
 ### Added
 
 - Added one shared Node SQLite/workerd D1 capability suite proving conditional
