@@ -39,3 +39,25 @@ Backup restore choices are explicit:
 - `migration-bound` requires the exact schema and ledger evidence already live.
 - `rebuild` imports nothing and returns `rebuild-required`; the host must rebuild
   RDF through its own trusted path.
+
+For an exact detached 0.4.1 database, use the read-only compatibility seam:
+
+```ts
+import {
+  adoptDiamond041LegacyOwnerV1,
+  decodeDiamond041LegacyOwnerV1,
+} from '@gnolith/diamond/backup';
+
+const fragment = await decodeDiamond041LegacyOwnerV1({
+  source: readOnlySource,
+  attestation: {
+    packageName: '@gnolith/diamond',
+    packageVersion: '0.4.1',
+  },
+});
+const section = adoptDiamond041LegacyOwnerV1(fragment);
+```
+
+The decoder neither opens nor mutates the source. It recognizes only the exact
+legacy Diamond tables/indexes and Diamond namespace ledger row, applies bounded
+row/byte limits, and exposes counts/digests without exposing payload bytes.

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { prepareQuadPatch, statementsForQuadPatch } from '../src/d1-source.js';
+import { DataFactory } from 'rdf-data-factory';
+import {
+  insertQuads,
+  prepareQuadPatch,
+  statementsForQuadPatch,
+} from '../src/d1-source.js';
 import {
   createMigrationAssemblyAuthorityV1,
   createMigrationLedgerBackupV1,
@@ -11,11 +16,16 @@ import {
   diamondMigrations,
   initializeStore,
 } from '../src/schema.js';
-import { createDiamondBackupV1 } from '../src/backup.js';
+import {
+  adoptDiamond041LegacyOwnerV1,
+  createDiamondBackupV1,
+  decodeDiamond041LegacyOwnerV1,
+} from '../src/backup.js';
 import type { DiamondBackupSection } from '../src/backup.js';
 import { MemoryD1 } from './memory-d1.js';
 
 const databases: MemoryD1[] = [];
+const factory = new DataFactory();
 const memory = () => {
   const db = new MemoryD1();
   databases.push(db);
@@ -307,5 +317,249 @@ describe('architecture reset ownership boundaries', () => {
         .bind(diamondMigrationNamespace)
         .all(),
     ).resolves.toMatchObject({ results: [{ count: 0 }] });
+  });
+
+  it('decodes exact 0.4.1 state read-only into a bounded adoptable fragment', async () => {
+    const source = memory();
+    await initializeStore(source);
+    await insertQuads(source, [
+      factory.quad(
+        factory.namedNode('https://example.test/legacy'),
+        factory.namedNode('https://example.test/value'),
+        factory.literal('preserve'),
+      ),
+    ]);
+    const observedSql: string[] = [];
+    const readOnlySource = {
+      prepare(sql: string) {
+        observedSql.push(sql);
+        return source.prepare(sql);
+      },
+    };
+    const fragment = await decodeDiamond041LegacyOwnerV1({
+      source: readOnlySource,
+      attestation: {
+        packageName: '@gnolith/diamond',
+        packageVersion: '0.4.1',
+      },
+    });
+    expect(fragment).toMatchObject({
+      format: 'diamond-legacy-owner-fragment-v1',
+      source: {
+        packageName: '@gnolith/diamond',
+        packageVersion: '0.4.1',
+      },
+      counts: { quads: 1, patchGuards: 0 },
+      ledger: { namespace: diamondMigrationNamespace },
+    });
+    expect(fragment.digests.payloadSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(Object.isFrozen(fragment)).toBe(true);
+    expect(
+      observedSql.every(
+        (sql) =>
+          /^\s*(?:SELECT|PRAGMA)\b/iu.test(sql) &&
+          !/\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)\b/iu.test(sql),
+      ),
+    ).toBe(true);
+
+    const target = memory();
+    const registration = await registerDiamond(target, 'adopt-target');
+    const backup = createDiamondBackupV1({
+      db: target,
+      owner: registration.owner,
+      ledgerBackup: registration.ledger,
+    });
+    await expect(
+      backup.import(adoptDiamond041LegacyOwnerV1(fragment), {
+        mode: 'empty',
+      }),
+    ).resolves.toMatchObject({ quadCount: 1 });
+    await expect(
+      target.prepare('SELECT COUNT(*) AS count FROM rdf_quads').all(),
+    ).resolves.toMatchObject({ results: [{ count: 1 }] });
+    expect(() => adoptDiamond041LegacyOwnerV1({ ...fragment })).toThrow(
+      /forged|serialized/u,
+    );
+  });
+
+  it('rejects unattested, oversized, or schema-drifted 0.4.1 sources', async () => {
+    const source = memory();
+    await initializeStore(source);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.0',
+        } as never,
+      }),
+    ).rejects.toThrow(/exact @gnolith\/diamond@0\.4\.1/u);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/not-diamond',
+          packageVersion: '0.4.1',
+        } as never,
+      }),
+    ).rejects.toThrow(/exact @gnolith\/diamond@0\.4\.1/u);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+        limits: { maxQuads: 0 },
+      }),
+    ).rejects.toThrow(/maxQuads/u);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+        limits: { maxPayloadBytes: 64 * 1024 * 1024 + 1 },
+      }),
+    ).rejects.toThrow(/maxPayloadBytes/u);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+        limits: { maxPayloadBytes: 0 },
+      }),
+    ).rejects.toThrow(/maxPayloadBytes/u);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+        limits: { maxQuads: 1_000_001 },
+      }),
+    ).rejects.toThrow(/maxQuads/u);
+    await source.batch([
+      source
+        .prepare('INSERT INTO rdf_patch_guards (patch_id) VALUES (?)')
+        .bind('one'),
+      source
+        .prepare('INSERT INTO rdf_patch_guards (patch_id) VALUES (?)')
+        .bind('two'),
+    ]);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+        limits: { maxQuads: 1 },
+      }),
+    ).rejects.toThrow(/contains 2 patch guards/u);
+    await source.batch([source.prepare('DELETE FROM rdf_patch_guards')]);
+    await insertQuads(source, [
+      factory.quad(
+        factory.namedNode('https://example.test/a'),
+        factory.namedNode('https://example.test/p'),
+        factory.literal('v'),
+      ),
+    ]);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+        limits: { maxQuads: 1, maxPayloadBytes: 1 },
+      }),
+    ).rejects.toThrow(/payload is .* configured maximum/u);
+    const changingSource = {
+      prepare(sql: string) {
+        if (/FROM rdf_quads ORDER BY id/u.test(sql)) {
+          const statement = {
+            bind() {
+              return statement;
+            },
+            async all() {
+              return { results: [] };
+            },
+          };
+          return statement;
+        }
+        return source.prepare(sql);
+      },
+    };
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source: changingSource,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+      }),
+    ).rejects.toThrow(/changed while/u);
+    await insertQuads(source, [
+      factory.quad(
+        factory.namedNode('https://example.test/b'),
+        factory.namedNode('https://example.test/p'),
+        factory.literal('v'),
+      ),
+    ]);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+        limits: { maxQuads: 1 },
+      }),
+    ).rejects.toThrow(/contains 2 quads/u);
+    const ledgerRow = await source
+      .prepare('SELECT checksum FROM _gnolith_migrations WHERE namespace = ?')
+      .bind(diamondMigrationNamespace)
+      .all<{ checksum: string }>();
+    await source.batch([
+      source
+        .prepare(
+          'UPDATE _gnolith_migrations SET checksum = ? WHERE namespace = ?',
+        )
+        .bind('0'.repeat(64), diamondMigrationNamespace),
+    ]);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+      }),
+    ).rejects.toThrow(/namespace-ledger evidence/u);
+    await source.batch([
+      source
+        .prepare(
+          'UPDATE _gnolith_migrations SET checksum = ? WHERE namespace = ?',
+        )
+        .bind(ledgerRow.results[0]!.checksum, diamondMigrationNamespace),
+    ]);
+    await source.batch([
+      source.prepare('DROP INDEX rdf_quads_pogs_idx'),
+      source.prepare('CREATE INDEX rdf_quads_pogs_idx ON rdf_quads(id)'),
+    ]);
+    await expect(
+      decodeDiamond041LegacyOwnerV1({
+        source,
+        attestation: {
+          packageName: '@gnolith/diamond',
+          packageVersion: '0.4.1',
+        },
+      }),
+    ).rejects.toThrow(/exact Diamond 0\.4\.1/u);
   });
 });

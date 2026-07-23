@@ -7,6 +7,13 @@ Versioning after the first public release.
 
 ## [0.5.0] - 2026-07-23
 
+### Added
+
+- Added a read-only, bounded decoder for exact
+  `@gnolith/diamond@0.4.1` owner state. It inspects only fixed Diamond legacy
+  objects and namespace evidence, emits a privately branded fragment with
+  counts/digests, and adopts that fragment into the 0.5 backup flow.
+
 ### Changed
 
 - Replaced the public transport handler with an already-authorized,

@@ -14,6 +14,17 @@ export interface SqlStatement {
   first?<T = Record<string, unknown>>(): Promise<T | null>;
 }
 
+export interface SqlReadStatement {
+  bind(...values: readonly SqlValue[]): SqlReadStatement;
+  all<T = Record<string, unknown>>(): Promise<SqlResult<T>>;
+  first?<T = Record<string, unknown>>(): Promise<T | null>;
+}
+
+/** Read-only portable capability accepted by legacy source decoders. */
+export interface SqlReadDatabase {
+  prepare(sql: string): SqlReadStatement;
+}
+
 export interface SqlDatabase {
   prepare(sql: string): SqlStatement;
   batch<T = Record<string, unknown>>(

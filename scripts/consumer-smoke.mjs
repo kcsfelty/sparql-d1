@@ -41,10 +41,16 @@ try {
         statementsForQuadPatch,
       } from '@gnolith/diamond';
       import { createSparqlExecutor } from '@gnolith/diamond/sparql';
-      import { createDiamondBackupV1 } from '@gnolith/diamond/backup';
+      import {
+        adoptDiamond041LegacyOwnerV1,
+        createDiamondBackupV1,
+        decodeDiamond041LegacyOwnerV1,
+      } from '@gnolith/diamond/backup';
       import { NodeSqliteDatabase } from '@gnolith/diamond/node-sqlite';
       if ([initializeStore, prepareQuadPatch, statementsForQuadPatch,
-        createSparqlExecutor, createDiamondBackupV1, NodeSqliteDatabase]
+        createSparqlExecutor, createDiamondBackupV1,
+        decodeDiamond041LegacyOwnerV1, adoptDiamond041LegacyOwnerV1,
+        NodeSqliteDatabase]
         .some(value => typeof value !== 'function')) {
         throw new Error('Expected 0.5.0 package exports are unavailable');
       }

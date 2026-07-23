@@ -84,6 +84,12 @@ inspection or mutation; foreign tables and ledger namespaces are untouched.
 Rebuild mode returns an explicit `rebuild-required` report and never silently
 drops RDF.
 
+Exact 0.4.1 sources can be decoded through the read-only
+`decodeDiamond041LegacyOwnerV1()` compatibility seam. It requires an exact
+package/version attestation, inspects only fixed Diamond-owned legacy objects
+and namespace evidence, and emits a bounded privately branded owner fragment
+for `adoptDiamond041LegacyOwnerV1()`.
+
 See [the 0.5 migration guide](docs/migrating-to-0.5.md), [API reference](docs/api.md),
 [threat model](docs/threat-model.md), and [embedded SQLite guide](docs/embedded-sqlite.md).
 

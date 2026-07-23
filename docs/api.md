@@ -58,6 +58,19 @@ versions, the Diamond ledger slice, an opaque `Uint8Array` payload, and SHA-256.
 Imports require an empty target or exact migration-bound target. Foreign objects
 are not enumerated for export and are never modified.
 
+`decodeDiamond041LegacyOwnerV1({source, attestation, limits})` accepts the
+read-only `SqlReadDatabase` capability and only the exact package/version
+attestation `{packageName: '@gnolith/diamond', packageVersion: '0.4.1'}`. It
+queries fixed Diamond-owned tables, indexes, and the Diamond ledger namespace;
+it performs no writes and has hard row/byte ceilings. The resulting frozen
+`DiamondLegacyOwnerFragment` exposes counts, SHA-256 digests, and canonical
+namespace evidence while keeping owner payload bytes in a private in-memory
+brand.
+
+`adoptDiamond041LegacyOwnerV1(fragment)` rejects forged or serialized fragments
+and returns a `DiamondBackupSection` accepted by the normal dry-run/import flow.
+Diamond exposes no migration or backup CLI.
+
 ## `@gnolith/diamond/node-sqlite`
 
 `NodeSqliteDatabase` is an optional Node 22+ adapter. Its batch is ordered,

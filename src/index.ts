@@ -9,6 +9,8 @@ export type {
   SqlCapabilities,
   SqlDatabase,
   SqlResult,
+  SqlReadDatabase,
+  SqlReadStatement,
   SqlStatement,
   SqlValue,
 } from './d1-types.js';
