@@ -1,6 +1,6 @@
 {
   "name": "@gnolith/diamond",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "SPARQL and atomic RDF storage for Cloudflare D1 and embedded SQLite.",
   "author": "Gnolith contributors",
   "keywords": [
@@ -34,9 +34,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./endpoint": {
-      "types": "./dist/endpoint.d.ts",
-      "import": "./dist/endpoint.js"
+    "./sparql": {
+      "types": "./dist/sparql.d.ts",
+      "import": "./dist/sparql.js"
+    },
+    "./backup": {
+      "types": "./dist/backup.d.ts",
+      "import": "./dist/backup.js"
     },
     "./node-sqlite": {
       "types": "./dist/node-sqlite.d.ts",
@@ -54,8 +58,8 @@
     "SUPPORT.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run example:check && npm run worker:bundle:check && npm run worker:local:test && npm run pack:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run example:check && npm run pack:check && npm run artifact-boundary:check && npm run consumer:check && npm run licenses:check && npm run readiness:check",
     "conformance": "npm run build && node scripts/run-conformance.mjs summary",
     "conformance:earl": "npm run build && node scripts/run-conformance.mjs earl",
     "consumer:check": "node scripts/consumer-smoke.mjs",
@@ -71,12 +75,11 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run",
+    "artifact-boundary:check": "node scripts/artifact-boundary-check.mjs",
     "benchmark": "tsx benchmark/run.ts",
     "benchmark:check": "npm run --silent benchmark > benchmark.json && node scripts/validate-benchmark.mjs benchmark.json",
     "benchmark:storage": "tsx benchmark/storage.ts",
-    "benchmark:storage:check": "npm run --silent benchmark:storage > benchmark-storage.json",
-    "worker:bundle:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
-    "worker:local:test": "node scripts/worker-e2e.mjs"
+    "benchmark:storage:check": "npm run --silent benchmark:storage > benchmark-storage.json"
   },
   "engines": {
     "node": ">=22"

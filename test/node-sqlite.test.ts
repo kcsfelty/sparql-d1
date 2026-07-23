@@ -70,7 +70,7 @@ describe('NodeSqliteDatabase', () => {
       await expect(
         db.prepare('SELECT 1').first<{ value: number }>(),
       ).resolves.not.toBeNull();
-      expect(() => db.prepare('SELECT ?').bind({ bad: true })).toThrow(
+      expect(() => db.prepare('SELECT ?').bind({ bad: true } as never)).toThrow(
         /unsupported SQLite binding/iu,
       );
       expect(() =>

@@ -1,51 +1,52 @@
-export interface D1ResultLike<T = Record<string, unknown>> {
-  results: T[];
+export type SqlValue =
+  null | string | number | bigint | boolean | ArrayBuffer | ArrayBufferView;
+
+export interface SqlResult<T = Record<string, unknown>> {
+  results: readonly T[];
   success?: boolean;
-  meta?: Record<string, unknown>;
+  meta?: Readonly<Record<string, unknown>>;
 }
 
-export interface D1PreparedStatementLike {
-  bind(...values: unknown[]): D1PreparedStatementLike;
-  run<T = Record<string, unknown>>(): Promise<D1ResultLike<T>>;
-  all<T = Record<string, unknown>>(): Promise<D1ResultLike<T>>;
+export interface SqlStatement {
+  bind(...values: readonly SqlValue[]): SqlStatement;
+  run<T = Record<string, unknown>>(): Promise<SqlResult<T>>;
+  all<T = Record<string, unknown>>(): Promise<SqlResult<T>>;
+  first?<T = Record<string, unknown>>(): Promise<T | null>;
 }
 
-export interface D1DatabaseLike {
-  prepare(sql: string): D1PreparedStatementLike;
+export interface SqlDatabase {
+  prepare(sql: string): SqlStatement;
   batch<T = Record<string, unknown>>(
-    statements: D1PreparedStatementLike[],
-  ): Promise<Array<D1ResultLike<T>>>;
+    statements: readonly SqlStatement[],
+  ): Promise<readonly SqlResult<T>[]>;
 }
 
-/**
- * Runtime-neutral SQLite result shape used by Diamond storage adapters.
- * Batch implementations return these results in statement input order.
- */
-export interface SqliteResultLike<T = Record<string, unknown>> {
-  results: T[];
-  success?: boolean;
-  meta?: Record<string, unknown>;
+export interface SqlCapabilities {
+  readonly atomicOrderedBatch: true;
+  readonly blobValues: true;
+  readonly safeIntegerValues: true;
+  readonly bigintValues: boolean;
+  readonly first: boolean;
 }
 
-/** The minimum prepared-statement capability required by Diamond. */
-export interface SqlitePreparedStatementLike {
-  bind(...values: unknown[]): SqlitePreparedStatementLike;
-  run<T = Record<string, unknown>>(): Promise<SqliteResultLike<T>>;
-  all<T = Record<string, unknown>>(): Promise<SqliteResultLike<T>>;
+const capabilities = new WeakMap<SqlDatabase, SqlCapabilities>();
+
+export function declareSqlCapabilities(
+  db: SqlDatabase,
+  value: SqlCapabilities,
+): void {
+  capabilities.set(db, Object.freeze({ ...value }));
 }
 
-/**
- * The minimum asynchronous SQLite capability used by Diamond.
- * `batch` is expected to execute atomically and return positional results.
- */
-export interface SqliteDatabaseLike {
-  prepare(sql: string): SqlitePreparedStatementLike;
-  batch<T = Record<string, unknown>>(
-    statements: SqlitePreparedStatementLike[],
-  ): Promise<Array<SqliteResultLike<T>>>;
+export function readSqlCapabilities(db: SqlDatabase): SqlCapabilities | null {
+  return capabilities.get(db) ?? null;
 }
 
-/** Optional row convenience supported by adapters that expose `first()`. */
-export interface SqliteFirstCapability {
-  first<T = Record<string, unknown>>(): Promise<T | null>;
-}
+/** Compatibility names retained for structural D1 and SQLite consumers. */
+export type D1ResultLike<T = Record<string, unknown>> = SqlResult<T>;
+export type D1PreparedStatementLike = SqlStatement;
+export type D1DatabaseLike = SqlDatabase;
+export type SqliteResultLike<T = Record<string, unknown>> = SqlResult<T>;
+export type SqlitePreparedStatementLike = SqlStatement;
+export type SqliteDatabaseLike = SqlDatabase;
+export type SqliteFirstCapability = Required<Pick<SqlStatement, 'first'>>;

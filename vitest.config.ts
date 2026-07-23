@@ -9,7 +9,7 @@ export default defineConfig({
     testTimeout: 15_000,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json-summary'],
+      reporter: ['text', 'json', 'json-summary'],
       include: ['src/**/*.ts'],
       exclude: ['src/d1-types.ts', 'src/index.ts'],
       thresholds: {

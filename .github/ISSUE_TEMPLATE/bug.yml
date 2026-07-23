@@ -23,6 +23,6 @@ body:
     id: runtime
     attributes:
       label: Runtime versions
-      description: Node, Wrangler/workerd, Comunica, and deployment platform versions.
+      description: Node, D1/workerd, SQLite adapter, and Comunica versions.
     validations:
       required: true

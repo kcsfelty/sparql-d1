@@ -3,7 +3,7 @@
 ## Completed public foundation
 
 - D1 RDF/JS Source and Store contracts
-- SPARQL Protocol endpoint and secure defaults
+- Transport-neutral SPARQL execution and bounded security policy
 - Workerd D1 integration and differential tests
 - Public repository, protected CI, and reproducible provenance-bearing releases
 
@@ -11,7 +11,7 @@
 
 - W3C manifest runner and documented exclusions
 - Expanded generated query/dataset differential coverage
-- Exact-package consumer smoke and local module-Worker fixture
+- Exact-package consumer smoke across all public subpaths
 - Cancellation, concurrent access, and migration rollback suites
 
 ## Completed 0.2 performance work

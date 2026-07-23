@@ -3,11 +3,12 @@ import {
   type SQLInputValue,
   type StatementSync,
 } from 'node:sqlite';
-import type {
-  SqliteDatabaseLike,
-  SqliteFirstCapability,
-  SqlitePreparedStatementLike,
-  SqliteResultLike,
+import {
+  declareSqlCapabilities,
+  type SqliteDatabaseLike,
+  type SqliteFirstCapability,
+  type SqlitePreparedStatementLike,
+  type SqliteResultLike,
 } from './d1-types.js';
 import { assertSupportedNodeSqliteVersion } from './node-version.js';
 
@@ -161,6 +162,13 @@ export class NodeSqliteDatabase implements SqliteDatabaseLike {
       if (path !== ':memory:') {
         this.#connection.exec('PRAGMA journal_mode = WAL');
       }
+      declareSqlCapabilities(this, {
+        atomicOrderedBatch: true,
+        blobValues: true,
+        safeIntegerValues: true,
+        bigintValues: true,
+        first: true,
+      });
     } catch (cause) {
       this.#connection.close();
       this.#closed = true;
@@ -181,8 +189,8 @@ export class NodeSqliteDatabase implements SqliteDatabaseLike {
   }
 
   async batch<T = Record<string, unknown>>(
-    statements: SqlitePreparedStatementLike[],
-  ): Promise<Array<SqliteResultLike<T>>> {
+    statements: readonly SqlitePreparedStatementLike[],
+  ): Promise<readonly SqliteResultLike<T>[]> {
     return this.#withConnection((connection) => {
       const owned = statements.map((statement) => {
         if (!(statement instanceof NodeSqliteStatement)) {

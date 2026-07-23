@@ -4,9 +4,9 @@ import { DataFactory } from 'rdf-data-factory';
 import {
   D1QuadSource,
   QuadPatchConflictError,
-  createSparqlHandler,
   initializeStore,
 } from '@gnolith/diamond';
+import { createSparqlExecutor } from '@gnolith/diamond/sparql';
 import {
   addWikibaseStyleStatement,
   buildWikibaseStyleEntityQuads,
@@ -347,15 +347,10 @@ try {
     1,
   );
 
-  const handle = createSparqlHandler({ db, exposeErrors: true });
-  const response = await handle(
-    new Request('https://site.test/api/sparql', {
-      method: 'POST',
-      headers: {
-        accept: 'application/sparql-results+json',
-        'content-type': 'application/sparql-query',
-      },
-      body: `SELECT ?statement ?qualifier ?referenceValue ?amount WHERE {
+  const execution = await createSparqlExecutor({ db })({
+    operation: 'query',
+    accept: 'application/sparql-results+json',
+    text: `SELECT ?statement ?qualifier ?referenceValue ?amount WHERE {
         <${vocabulary.entity('Q1').value}> <${vocabulary.claim('P1').value}> ?statement.
         ?statement a <http://wikiba.se/ontology#Statement>, <http://wikiba.se/ontology#BestRank>;
           <${vocabulary.qualifier('P4').value}> ?qualifier;
@@ -366,10 +361,12 @@ try {
           <${vocabulary.referenceValue('P3').value}> ?referenceValue.
         ?fullValue <https://site.test/rdf/schema/amount> ?amount.
       }`,
-    }),
-  );
-  if (response.status !== 200) {
-    assert.fail(`SPARQL example request failed: ${await response.text()}`);
+  });
+  const response = new Response(execution.body, {
+    status: execution.status,
+  });
+  if (execution.status !== 200) {
+    assert.fail(`SPARQL example execution failed: ${await response.text()}`);
   }
   const result = (await response.json()) as {
     results: { bindings: Array<Record<string, { value: string }>> };

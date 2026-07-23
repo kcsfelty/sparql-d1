@@ -12,6 +12,7 @@ import {
   MAX_PORTABLE_SQLITE_BIND_BYTES,
   assertSqlitePayloadSize,
 } from './sqlite-values.js';
+import { connectionIdFor } from './sql-identity.js';
 
 const SELECT_COLUMNS = [
   'subject_json',
@@ -91,6 +92,28 @@ export interface PreparedQuadPatch {
     results: readonly D1ResultLike[],
     offset?: number,
   ): QuadPatchResult;
+}
+
+const preparedPatchProvenance = new WeakMap<
+  PreparedQuadPatch,
+  { db: D1DatabaseLike; connectionId: string }
+>();
+
+/**
+ * Returns a plan's statements only when it belongs to the supplied connection.
+ * This is the composition boundary for mixing Diamond plans with owner SQL.
+ */
+export function statementsForQuadPatch(
+  db: D1DatabaseLike,
+  plan: PreparedQuadPatch,
+): readonly D1PreparedStatementLike[] {
+  const provenance = preparedPatchProvenance.get(plan);
+  if (!provenance || provenance.db !== db) {
+    throw new TypeError(
+      'Prepared quad patch is forged or belongs to another SQL connection',
+    );
+  }
+  return plan.statements;
 }
 
 export class QuadPatchConflictError extends Error {
@@ -377,7 +400,7 @@ export async function applyQuadPatch(
     return prepared.readResult([]);
   }
   try {
-    const results = await db.batch([...prepared.statements]);
+    const results = await db.batch(statementsForQuadPatch(db, prepared));
     return prepared.readResult(results);
   } catch (cause) {
     throw prepared.mapError(cause);
@@ -403,7 +426,7 @@ export function prepareQuadPatch(
     !deleteRows.length &&
     !insertRows.length
   ) {
-    return preparedPatch([], undefined, undefined, undefined);
+    return preparedPatch(db, [], undefined, undefined, undefined);
   }
 
   const requirePayload = requireRows.length
@@ -448,6 +471,7 @@ export function prepareQuadPatch(
   }
 
   return preparedPatch(
+    db,
     statements,
     guardResultIndex,
     deleteResultIndex,
@@ -456,14 +480,15 @@ export function prepareQuadPatch(
 }
 
 function preparedPatch(
+  db: D1DatabaseLike,
   statements: D1PreparedStatementLike[],
   guardResultIndex: number | undefined,
   deleteResultIndex: number | undefined,
   insertResultIndex: number | undefined,
 ): PreparedQuadPatch {
-  return {
-    statements,
-    mapError(cause) {
+  const plan: PreparedQuadPatch = Object.freeze({
+    statements: Object.freeze([...statements]),
+    mapError(cause: unknown) {
       if (
         guardResultIndex !== undefined &&
         cause instanceof Error &&
@@ -475,7 +500,7 @@ function preparedPatch(
       }
       return cause instanceof Error ? cause : new Error(String(cause));
     },
-    readResult(results, offset = 0) {
+    readResult(results: readonly D1ResultLike[], offset = 0) {
       if (!Number.isSafeInteger(offset) || offset < 0) {
         throw new RangeError(
           'Quad patch result offset must be a non-negative safe integer',
@@ -501,7 +526,12 @@ function preparedPatch(
             : Number(results[offset + insertResultIndex]?.meta?.changes ?? 0),
       };
     },
-  };
+  });
+  preparedPatchProvenance.set(plan, {
+    db,
+    connectionId: connectionIdFor(db),
+  });
+  return plan;
 }
 
 function encodeInsertRows(quads: Iterable<RDF.Quad>) {

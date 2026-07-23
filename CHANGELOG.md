@@ -5,6 +5,28 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-23
+
+### Changed
+
+- Replaced the public transport handler with an already-authorized,
+  transport-neutral SPARQL executor in the `./sparql` subpath.
+- Introduced readonly runtime-neutral SQL contracts, explicit adapter
+  capabilities, and connection-bound opaque transaction plans.
+- Added non-forgeable migration-owner registration, JCS SHA-256 namespace
+  slices, and owner-scoped Diamond backup inspection/export/import.
+
+### Removed
+
+- Removed the `./endpoint` export and all routing, authentication, CORS, and
+  rate-limit behavior from Diamond.
+
+### Security
+
+- Rejects forged/serialized/cross-connection owner handles and plans, verifies
+  backup/evidence digests before mutation, preserves foreign database objects,
+  and requires exact outbound SERVICE authorization.
+
 ## [0.4.1] - 2026-07-22
 
 ### Added

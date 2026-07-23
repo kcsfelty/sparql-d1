@@ -31,7 +31,7 @@ const UPDATE_OPERATIONS = new Set([
   'move',
 ]);
 
-export interface SparqlRequestObservation {
+export interface SparqlExecutionObservation {
   durationMs: number;
   queryBytes: number;
   status: number;
@@ -40,9 +40,8 @@ export interface SparqlRequestObservation {
   error?: string;
 }
 
-export type ServicePolicy = (
+export type ServiceAuthorization = (
   serviceIri: URL,
-  request: Request,
 ) => boolean | Promise<boolean>;
 
 export interface D1SourceFactoryOptions extends D1QuadSourceOptions {
@@ -54,27 +53,37 @@ export type D1SourceFactory = (
   options: D1SourceFactoryOptions,
 ) => RDF.Source;
 
-export interface SparqlHandlerOptions {
+export interface SparqlExecutionRequest {
+  readonly operation: 'query' | 'update';
+  readonly text: string;
+  readonly accept?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface SparqlExecutionPolicy {
+  readonly readOnly?: boolean;
+  readonly maxQueryBytes?: number;
+  readonly maxResultBytes?: number;
+  readonly maxAlgebraDepth?: number;
+  readonly maxAlgebraOperations?: number;
+  readonly timeoutMs?: number;
+  readonly authorizeService?: ServiceAuthorization;
+  readonly fetchService?: typeof globalThis.fetch;
+}
+
+export interface SparqlExecutionResult {
+  readonly status: number;
+  readonly mediaType?: string;
+  readonly body?: ReadableStream<Uint8Array>;
+}
+
+export interface SparqlExecutorOptions {
   db: D1DatabaseLike;
   sourceFactory?: D1SourceFactory;
   sourcePageSize?: number;
   engine?: QueryEngine | Promise<QueryEngine>;
-  authenticate?: (
-    request: Request,
-  ) => boolean | Response | Promise<boolean | Response>;
-  rateLimit?: (
-    request: Request,
-  ) => Response | null | undefined | Promise<Response | null | undefined>;
-  readOnly?: boolean;
-  servicePolicy?: ServicePolicy;
-  serviceFetch?: typeof globalThis.fetch;
-  maxQueryBytes?: number;
-  maxResultBytes?: number;
-  maxAlgebraDepth?: number;
-  maxAlgebraOperations?: number;
-  timeoutMs?: number;
-  exposeErrors?: boolean;
-  observe?: (observation: SparqlRequestObservation) => void;
+  policy?: SparqlExecutionPolicy;
+  observe?: (observation: SparqlExecutionObservation) => void;
   observeD1?: (observation: QueryObservation) => void;
 }
 
@@ -86,7 +95,7 @@ interface Limits {
   timeoutMs: number;
 }
 
-class HttpError extends Error {
+class SparqlExecutionError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -95,7 +104,7 @@ class HttpError extends Error {
   }
 }
 
-export function createSparqlHandler(options: SparqlHandlerOptions) {
+export function createSparqlExecutor(options: SparqlExecutorOptions) {
   let defaultEngine: Promise<QueryEngine> | undefined;
   const getEngine = () => {
     if (options.engine) {
@@ -104,7 +113,7 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
     defaultEngine ??= loadDefaultEngine();
     return defaultEngine;
   };
-  const readOnly = options.readOnly ?? true;
+  const readOnly = options.policy?.readOnly ?? true;
   const sourceOptions = {
     readOnly,
     ...(options.observeD1 ? { observe: options.observeD1 } : {}),
@@ -117,45 +126,29 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
     : readOnly
       ? new D1QuadSource(options.db, sourceOptions)
       : new D1QuadStore(options.db, sourceOptions);
-  const exposeErrors = options.exposeErrors ?? false;
   const limits: Limits = {
-    maxQueryBytes: options.maxQueryBytes ?? 16 * 1024,
-    maxResultBytes: options.maxResultBytes ?? 5 * 1024 * 1024,
-    maxAlgebraDepth: options.maxAlgebraDepth ?? 40,
-    maxAlgebraOperations: options.maxAlgebraOperations ?? 250,
-    timeoutMs: options.timeoutMs ?? 10_000,
+    maxQueryBytes: options.policy?.maxQueryBytes ?? 16 * 1024,
+    maxResultBytes: options.policy?.maxResultBytes ?? 5 * 1024 * 1024,
+    maxAlgebraDepth: options.policy?.maxAlgebraDepth ?? 40,
+    maxAlgebraOperations: options.policy?.maxAlgebraOperations ?? 250,
+    timeoutMs: options.policy?.timeoutMs ?? 10_000,
   };
 
-  return async function handleSparql(request: Request): Promise<Response> {
+  return async function executeSparql(
+    request: SparqlExecutionRequest,
+  ): Promise<SparqlExecutionResult> {
     const started = performance.now();
     let queryBytes = 0;
     let resultType: string | undefined;
     let mediaType: string | undefined;
 
     try {
-      const rateLimitResponse = await options.rateLimit?.(request);
-      if (rateLimitResponse instanceof Response) {
-        observe(options, started, queryBytes, rateLimitResponse.status);
-        return rateLimitResponse;
-      }
-      const authResult = await options.authenticate?.(request);
-      if (authResult instanceof Response) {
-        observe(options, started, queryBytes, authResult.status);
-        return authResult;
-      }
-      if (authResult === false) {
-        throw new HttpError(401, 'Unauthorized');
-      }
-
       const deadline = performance.now() + limits.timeoutMs;
-      const { query, operation } = await withDeadline(
-        extractQuery(request, readOnly, limits.maxQueryBytes),
-        deadline,
-        request.signal,
-      );
+      const query = request.text;
+      const operation = request.operation;
       queryBytes = new TextEncoder().encode(query).byteLength;
       if (queryBytes > limits.maxQueryBytes) {
-        throw new HttpError(
+        throw new SparqlExecutionError(
           413,
           'SPARQL query exceeds the configured size limit',
         );
@@ -167,25 +160,34 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
       const analysis = analyzeAlgebra(parsed);
 
       if (analysis.operations > limits.maxAlgebraOperations) {
-        throw new HttpError(422, 'SPARQL query contains too many operations');
+        throw new SparqlExecutionError(
+          422,
+          'SPARQL query contains too many operations',
+        );
       }
       if (analysis.depth > limits.maxAlgebraDepth) {
-        throw new HttpError(422, 'SPARQL query is nested too deeply');
+        throw new SparqlExecutionError(
+          422,
+          'SPARQL query is nested too deeply',
+        );
       }
       const isUpdate = [...analysis.types].some((type) =>
         UPDATE_OPERATIONS.has(type),
       );
       if (operation === 'query' && isUpdate) {
-        throw new HttpError(
+        throw new SparqlExecutionError(
           400,
-          'SPARQL Update requires the update POST operation',
+          'SPARQL Update requires operation "update"',
         );
       }
       if (operation === 'update' && !isUpdate) {
-        throw new HttpError(400, 'SPARQL query requires the query operation');
+        throw new SparqlExecutionError(
+          400,
+          'SPARQL query requires operation "query"',
+        );
       }
       if (analysis.types.has('load')) {
-        throw new HttpError(
+        throw new SparqlExecutionError(
           403,
           'Remote SPARQL LOAD is disabled; import RDF through a trusted application path',
         );
@@ -194,27 +196,26 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         await withDeadline(
           authorizeServices(
             analysis.serviceTargets,
-            options.servicePolicy,
-            request,
+            options.policy?.authorizeService,
           ),
           deadline,
           request.signal,
         );
       }
       if (readOnly && isUpdate) {
-        throw new HttpError(403, 'SPARQL Update is disabled');
+        throw new SparqlExecutionError(403, 'SPARQL Update is disabled');
       }
 
       const engine = await withDeadline(getEngine(), deadline, request.signal);
       const queryContext = {
         ...context,
-        httpAbortSignal: request.signal,
-        ...(options.servicePolicy
+        ...(request.signal ? { httpAbortSignal: request.signal } : {}),
+        ...(options.policy?.authorizeService
           ? {
               fetch: policyFetch(
-                options.servicePolicy,
-                request,
-                options.serviceFetch ?? globalThis.fetch.bind(globalThis),
+                options.policy.authorizeService,
+                options.policy.fetchService ??
+                  globalThis.fetch.bind(globalThis),
               ),
             }
           : {}),
@@ -229,7 +230,7 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
       if (result.resultType === 'void') {
         await withDeadline(result.execute(), deadline, request.signal);
         observe(options, started, queryBytes, 204, resultType);
-        return new Response(null, { status: 204 });
+        return { status: 204 };
       }
 
       const available = await withDeadline(
@@ -238,7 +239,7 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         request.signal,
       );
       mediaType = negotiateMediaType(
-        request.headers.get('accept'),
+        request.accept ?? null,
         result.resultType,
         new Set(Object.keys(available)),
       );
@@ -261,18 +262,10 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
       const body = toWebStream(serializedData, {
         deadline,
         maxBytes: limits.maxResultBytes,
-        signal: request.signal,
-      });
-      const response = new Response(body, {
-        status: 200,
-        headers: {
-          'content-type': `${mediaType}; charset=utf-8`,
-          vary: 'Accept',
-          'x-content-type-options': 'nosniff',
-        },
+        ...(request.signal ? { signal: request.signal } : {}),
       });
       observe(options, started, queryBytes, 200, resultType, mediaType);
-      return response;
+      return { status: 200, mediaType, body };
     } catch (error) {
       const httpError = normalizeError(error);
       observe(
@@ -284,18 +277,18 @@ export function createSparqlHandler(options: SparqlHandlerOptions) {
         mediaType,
         httpError.message,
       );
-      return Response.json(
-        {
-          error:
-            exposeErrors || httpError.status < 500
-              ? httpError.message
-              : 'SPARQL query execution failed',
-        },
-        {
-          status: httpError.status,
-          headers: { 'cache-control': 'no-store' },
-        },
-      );
+      return {
+        status: httpError.status,
+        mediaType: 'application/problem+json',
+        body: streamText(
+          JSON.stringify({
+            error:
+              httpError.status < 500
+                ? httpError.message
+                : 'SPARQL query execution failed',
+          }),
+        ),
+      };
     }
   };
 }
@@ -306,114 +299,6 @@ async function loadDefaultEngine(): Promise<QueryEngine> {
   const { QueryEngine: DefaultQueryEngine } =
     await import('@comunica/query-sparql/lib/QueryEngine.js');
   return new DefaultQueryEngine();
-}
-
-async function extractQuery(
-  request: Request,
-  readOnly: boolean,
-  maxBodyBytes: number,
-): Promise<{ query: string; operation: 'query' | 'update' }> {
-  if (request.method === 'GET') {
-    const url = new URL(request.url);
-    const update = url.searchParams.get('update');
-    if (update !== null) {
-      throw new HttpError(405, 'SPARQL Update requires POST');
-    }
-    const query = url.searchParams.get('query');
-    if (!query) {
-      throw new HttpError(400, 'Missing SPARQL query');
-    }
-    return { query, operation: 'query' };
-  }
-
-  if (request.method !== 'POST') {
-    throw new HttpError(405, 'Only GET and POST are supported');
-  }
-
-  const contentType = request.headers
-    .get('content-type')
-    ?.split(';', 1)[0]
-    ?.trim();
-  if (contentType === 'application/sparql-query') {
-    return {
-      query: await readRequestBody(request, maxBodyBytes),
-      operation: 'query',
-    };
-  }
-  if (contentType === 'application/sparql-update') {
-    if (readOnly) {
-      throw new HttpError(403, 'SPARQL Update is disabled');
-    }
-    return {
-      query: await readRequestBody(request, maxBodyBytes),
-      operation: 'update',
-    };
-  }
-  if (contentType === 'application/x-www-form-urlencoded') {
-    const form = new URLSearchParams(
-      await readRequestBody(request, maxBodyBytes),
-    );
-    const query = form.get('query');
-    const update = form.get('update');
-    if (query !== null && update !== null) {
-      throw new HttpError(400, 'Choose either query or update, not both');
-    }
-    if (update !== null && readOnly) {
-      throw new HttpError(403, 'SPARQL Update is disabled');
-    }
-    const operation = update !== null ? 'update' : 'query';
-    const text = query ?? update;
-    if (!text) {
-      throw new HttpError(400, 'Missing SPARQL query');
-    }
-    return { query: text, operation };
-  }
-  throw new HttpError(415, 'Unsupported SPARQL request content type');
-}
-
-async function readRequestBody(
-  request: Request,
-  maxBytes: number,
-): Promise<string> {
-  const contentLength = request.headers.get('content-length');
-  if (/^\d+$/u.test(contentLength ?? '') && Number(contentLength) > maxBytes) {
-    await request.body?.cancel();
-    throw new HttpError(413, 'SPARQL query exceeds the configured size limit');
-  }
-  if (!request.body) {
-    return '';
-  }
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        throw new HttpError(
-          413,
-          'SPARQL query exceeds the configured size limit',
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(body);
 }
 
 function analyzeAlgebra(value: unknown): {
@@ -461,52 +346,63 @@ function analyzeAlgebra(value: unknown): {
 
 async function authorizeServices(
   targets: ReadonlyArray<string | null>,
-  policy: ServicePolicy | undefined,
-  request: Request,
+  policy: ServiceAuthorization | undefined,
 ): Promise<void> {
   if (!policy || !targets.length) {
-    throw new HttpError(403, 'Federated SERVICE clauses are disabled');
+    throw new SparqlExecutionError(
+      403,
+      'Federated SERVICE clauses are disabled',
+    );
   }
   for (const target of targets) {
     if (!target) {
-      throw new HttpError(403, 'Dynamic SERVICE targets are not allowed');
+      throw new SparqlExecutionError(
+        403,
+        'Dynamic SERVICE targets are not allowed',
+      );
     }
-    await authorizeServiceTarget(new URL(target), policy, request);
+    await authorizeServiceTarget(new URL(target), policy);
   }
 }
 
 async function authorizeServiceTarget(
   url: URL,
-  policy: ServicePolicy,
-  request: Request,
+  policy: ServiceAuthorization,
 ): Promise<void> {
   if (
     !['http:', 'https:'].includes(url.protocol) ||
     url.username ||
     url.password ||
-    !(await policy(url, request))
+    !(await policy(url))
   ) {
-    throw new HttpError(403, 'Federated SERVICE target is not allowed');
+    throw new SparqlExecutionError(
+      403,
+      'Federated SERVICE target is not allowed',
+    );
   }
 }
 
 function policyFetch(
-  policy: ServicePolicy,
-  request: Request,
+  policy: ServiceAuthorization,
   transport: typeof globalThis.fetch,
 ): typeof globalThis.fetch {
   return async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
-    await authorizeServiceTarget(url, policy, request);
+    await authorizeServiceTarget(url, policy);
     const response = await transport(input, { ...init, redirect: 'manual' });
     if (response.status >= 300 && response.status < 400) {
-      throw new HttpError(403, 'Federated SERVICE redirects are disabled');
+      throw new SparqlExecutionError(
+        403,
+        'Federated SERVICE redirects are disabled',
+      );
     }
     return response;
   };
 }
 
-export function allowServiceUrls(urls: Iterable<string | URL>): ServicePolicy {
+export function allowServiceUrls(
+  urls: Iterable<string | URL>,
+): ServiceAuthorization {
   const allowed = new Set([...urls].map((url) => new URL(url).href));
   return (serviceIri) => allowed.has(serviceIri.href);
 }
@@ -557,7 +453,10 @@ function negotiateMediaType(
         left.serverPreference - right.serverPreference,
     );
   if (candidates[0]) return candidates[0].mediaType;
-  throw new HttpError(406, 'No acceptable SPARQL result format is available');
+  throw new SparqlExecutionError(
+    406,
+    'No acceptable SPARQL result format is available',
+  );
 }
 
 function parseAccept(value: string | null): Array<{
@@ -677,7 +576,7 @@ function escapeXml(value: string): string {
 
 function toWebStream(
   data: AsyncIterable<unknown>,
-  limits: { deadline: number; maxBytes: number; signal: AbortSignal },
+  limits: { deadline: number; maxBytes: number; signal?: AbortSignal },
 ): ReadableStream<Uint8Array> {
   const iterator = data[Symbol.asyncIterator]();
   const encoder = new TextEncoder();
@@ -704,7 +603,7 @@ function toWebStream(
         bytes += chunk.byteLength;
         if (bytes > limits.maxBytes) {
           await iterator.return?.();
-          throw new HttpError(
+          throw new SparqlExecutionError(
             413,
             'SPARQL result exceeds the configured size limit',
           );
@@ -720,6 +619,16 @@ function toWebStream(
   });
 }
 
+function streamText(value: string): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(value);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
 function withDeadline<T>(
   promise: Promise<T>,
   deadline: number,
@@ -727,10 +636,14 @@ function withDeadline<T>(
 ): Promise<T> {
   const remaining = deadline - performance.now();
   if (remaining <= 0) {
-    return Promise.reject(new HttpError(504, 'SPARQL query timed out'));
+    return Promise.reject(
+      new SparqlExecutionError(504, 'SPARQL query timed out'),
+    );
   }
   if (signal?.aborted) {
-    return Promise.reject(new HttpError(499, 'SPARQL request was cancelled'));
+    return Promise.reject(
+      new SparqlExecutionError(499, 'SPARQL request was cancelled'),
+    );
   }
   return new Promise<T>((resolve, reject) => {
     const cleanup = () => signal?.removeEventListener('abort', onAbort);
@@ -740,9 +653,14 @@ function withDeadline<T>(
       operation();
     };
     const onAbort = () =>
-      settle(() => reject(new HttpError(499, 'SPARQL request was cancelled')));
+      settle(() =>
+        reject(new SparqlExecutionError(499, 'SPARQL request was cancelled')),
+      );
     const timer = setTimeout(
-      () => settle(() => reject(new HttpError(504, 'SPARQL query timed out'))),
+      () =>
+        settle(() =>
+          reject(new SparqlExecutionError(504, 'SPARQL query timed out')),
+        ),
       remaining,
     );
     timer.unref?.();
@@ -759,28 +677,28 @@ function withDeadline<T>(
 
 function assertActiveDeadline(deadline: number, signal?: AbortSignal): void {
   if (signal?.aborted) {
-    throw new HttpError(499, 'SPARQL request was cancelled');
+    throw new SparqlExecutionError(499, 'SPARQL request was cancelled');
   }
   if (performance.now() >= deadline) {
-    throw new HttpError(504, 'SPARQL query timed out');
+    throw new SparqlExecutionError(504, 'SPARQL query timed out');
   }
 }
 
-function normalizeError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
+function normalizeError(error: unknown): SparqlExecutionError {
+  if (error instanceof SparqlExecutionError) {
     return error;
   }
   if (error instanceof Error) {
     if (/parse|syntax|query type/i.test(error.message)) {
-      return new HttpError(400, error.message);
+      return new SparqlExecutionError(400, error.message);
     }
-    return new HttpError(500, error.message);
+    return new SparqlExecutionError(500, error.message);
   }
-  return new HttpError(500, 'Unknown SPARQL query execution error');
+  return new SparqlExecutionError(500, 'Unknown SPARQL query execution error');
 }
 
 function observe(
-  options: SparqlHandlerOptions,
+  options: SparqlExecutorOptions,
   started: number,
   queryBytes: number,
   status: number,

@@ -1,4 +1,8 @@
-import type { SqliteDatabaseLike } from './d1-types.js';
+import type {
+  SqliteDatabaseLike,
+  SqlitePreparedStatementLike,
+} from './d1-types.js';
+import { connectionIdFor } from './sql-identity.js';
 
 export const migrationLedgerTable = '_gnolith_migrations' as const;
 
@@ -15,6 +19,244 @@ export interface AppliedMigration {
   checksum: string;
   adopted: boolean;
   appliedAt: string;
+}
+
+export interface MigrationLedgerSliceEntry {
+  readonly id: string;
+  readonly checksum: string;
+  readonly appliedAt: string;
+}
+
+export interface MigrationLedgerSlice {
+  readonly format: 'diamond-migration-ledger-slice-v1';
+  readonly namespace: string;
+  readonly entries: readonly MigrationLedgerSliceEntry[];
+  readonly canonicalSha256: string;
+}
+
+export interface MigrationLedgerOwnerHandle {
+  readonly ownerRegistrationId: string;
+  readonly namespace: string;
+  readonly installationId: string;
+  readonly connectionId: string;
+}
+
+export interface MigrationAssemblyAuthority {
+  readonly format: 'diamond-migration-assembly-authority-v1';
+}
+
+interface OwnerState {
+  readonly db: SqliteDatabaseLike;
+  readonly authority: MigrationAssemblyAuthority;
+  readonly namespace: string;
+  readonly installationId: string;
+  readonly connectionId: string;
+  readonly migrations: readonly NamespacedMigration[];
+  readonly manifestDigest: string;
+}
+
+interface AuthorityState {
+  readonly db: SqliteDatabaseLike;
+  readonly installationId: string;
+  readonly registrations: Map<string, string>;
+}
+
+const authorityStates = new WeakMap<
+  MigrationAssemblyAuthority,
+  AuthorityState
+>();
+const ownerStates = new WeakMap<MigrationLedgerOwnerHandle, OwnerState>();
+
+export function createMigrationAssemblyAuthorityV1(
+  db: SqliteDatabaseLike,
+  installationId: string,
+): MigrationAssemblyAuthority {
+  assertInstallationId(installationId);
+  const authority = Object.freeze({
+    format: 'diamond-migration-assembly-authority-v1' as const,
+  });
+  authorityStates.set(authority, {
+    db,
+    installationId,
+    registrations: new Map(),
+  });
+  return authority;
+}
+
+export async function registerMigrationLedgerOwnerV1(options: {
+  readonly db: SqliteDatabaseLike;
+  readonly installationId: string;
+  readonly namespace: string;
+  readonly migrations: readonly NamespacedMigration[];
+  readonly assemblyAuthority: MigrationAssemblyAuthority;
+}): Promise<MigrationLedgerOwnerHandle> {
+  assertInstallationId(options.installationId);
+  assertNamespace(options.namespace);
+  assertMigrationOrder(options.migrations);
+  const authority = authorityStates.get(options.assemblyAuthority);
+  if (
+    !authority ||
+    authority.db !== options.db ||
+    authority.installationId !== options.installationId
+  ) {
+    throw new MigrationStateError(
+      'Migration assembly authority is forged or belongs to another connection or installation',
+    );
+  }
+  const manifestDigest = await manifestSha256(options.migrations);
+  const existing = authority.registrations.get(options.namespace);
+  if (existing !== undefined) {
+    throw new MigrationStateError(
+      existing === manifestDigest
+        ? `Migration namespace ${options.namespace} already has an owner registration`
+        : `Migration namespace ${options.namespace} was registered with a different manifest`,
+    );
+  }
+  await ensureMigrationLedger(options.db);
+  const applied = await readAppliedMigrations(options.db, options.namespace);
+  const expected = await migrationChecksums(options.migrations);
+  validateApplied(options.namespace, applied, expected);
+
+  const handle = Object.freeze({
+    ownerRegistrationId: crypto.randomUUID(),
+    namespace: options.namespace,
+    installationId: options.installationId,
+    connectionId: connectionIdFor(options.db),
+  });
+  authority.registrations.set(options.namespace, manifestDigest);
+  ownerStates.set(handle, {
+    db: options.db,
+    authority: options.assemblyAuthority,
+    namespace: options.namespace,
+    installationId: options.installationId,
+    connectionId: handle.connectionId,
+    migrations: Object.freeze([...options.migrations]),
+    manifestDigest,
+  });
+  return handle;
+}
+
+export interface MigrationLedgerBackup {
+  verifyNamespace(
+    owner: MigrationLedgerOwnerHandle,
+    slice: MigrationLedgerSlice,
+  ): Promise<void>;
+  exportNamespace(
+    owner: MigrationLedgerOwnerHandle,
+  ): Promise<MigrationLedgerSlice>;
+  validateNamespace(
+    owner: MigrationLedgerOwnerHandle,
+    slice: MigrationLedgerSlice,
+  ): Promise<void>;
+  restoreNamespace(
+    owner: MigrationLedgerOwnerHandle,
+    slice: MigrationLedgerSlice,
+    options: Readonly<
+      { mode: 'empty' } | { mode: 'exact-adopt'; confirmExactSchema: true }
+    >,
+  ): Promise<void>;
+}
+
+export function createMigrationLedgerBackupV1(
+  db: SqliteDatabaseLike,
+  assemblyAuthority: MigrationAssemblyAuthority,
+): MigrationLedgerBackup {
+  const authority = authorityStates.get(assemblyAuthority);
+  if (!authority || authority.db !== db) {
+    throw new MigrationStateError(
+      'Migration backup authority is forged or belongs to another connection',
+    );
+  }
+  return Object.freeze({
+    async verifyNamespace(
+      owner: MigrationLedgerOwnerHandle,
+      slice: MigrationLedgerSlice,
+    ) {
+      const state = requireOwner(owner, db, assemblyAuthority);
+      await verifyLedgerSlice(state, slice);
+    },
+    async exportNamespace(owner: MigrationLedgerOwnerHandle) {
+      const state = requireOwner(owner, db, assemblyAuthority);
+      const applied = await readAppliedMigrations(db, state.namespace);
+      await requireCompleteManifest(state, applied);
+      return createLedgerSlice(state.namespace, applied);
+    },
+    async validateNamespace(
+      owner: MigrationLedgerOwnerHandle,
+      slice: MigrationLedgerSlice,
+    ) {
+      const state = requireOwner(owner, db, assemblyAuthority);
+      await verifyLedgerSlice(state, slice);
+      const applied = await readAppliedMigrations(db, state.namespace);
+      await requireCompleteManifest(state, applied);
+      if (!sameSliceEntries(applied, slice.entries)) {
+        throw new MigrationStateError(
+          `Live ledger for ${state.namespace} does not match the supplied slice`,
+        );
+      }
+    },
+    async restoreNamespace(
+      owner: MigrationLedgerOwnerHandle,
+      slice: MigrationLedgerSlice,
+      options:
+        { mode: 'empty' } | { mode: 'exact-adopt'; confirmExactSchema: true },
+    ) {
+      await restoreMigrationLedgerNamespaceWithStatements(
+        db,
+        owner,
+        slice,
+        options,
+        [],
+      );
+    },
+  });
+}
+
+/** @internal Atomic composition seam used by owner-scoped backup modules. */
+export async function restoreMigrationLedgerNamespaceWithStatements(
+  db: SqliteDatabaseLike,
+  owner: MigrationLedgerOwnerHandle,
+  slice: MigrationLedgerSlice,
+  options:
+    { mode: 'empty' } | { mode: 'exact-adopt'; confirmExactSchema: true },
+  additionalStatements: readonly SqlitePreparedStatementLike[],
+): Promise<void> {
+  const known = ownerStates.get(owner);
+  if (!known) {
+    throw new MigrationStateError('Migration owner handle is forged');
+  }
+  const state = requireOwner(owner, db, known.authority);
+  await verifyLedgerSlice(state, slice);
+  const applied = await readAppliedMigrations(db, state.namespace);
+  if (applied.length !== 0) {
+    throw new MigrationStateError(
+      `Cannot restore non-empty ledger namespace ${state.namespace}`,
+    );
+  }
+  const entries = new Map(slice.entries.map((entry) => [entry.id, entry]));
+  const statements: SqlitePreparedStatementLike[] = [];
+  for (const migration of state.migrations) {
+    if (options.mode === 'empty') {
+      statements.push(...migration.statements.map((sql) => db.prepare(sql)));
+    }
+    const entry = entries.get(migration.id)!;
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO ${migrationLedgerTable}
+            (namespace, migration_id, checksum, adopted, applied_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          state.namespace,
+          entry.id,
+          entry.checksum,
+          options.mode === 'exact-adopt' ? 1 : 0,
+          entry.appliedAt,
+        ),
+    );
+  }
+  await db.batch([...statements, ...additionalStatements]);
 }
 
 export class MigrationStateError extends Error {
@@ -308,4 +550,183 @@ function assertNamespace(namespace: string): void {
 
 function normalizeSchemaSql(sql: string): string {
   return sql.replace(/\s+/gu, ' ').trim().toLowerCase();
+}
+
+function assertInstallationId(installationId: string): void {
+  if (!installationId.trim() || installationId.length > 200) {
+    throw new TypeError(
+      'Installation ID must be a non-empty string of at most 200 characters',
+    );
+  }
+}
+
+async function manifestSha256(
+  migrations: readonly NamespacedMigration[],
+): Promise<string> {
+  return sha256(
+    canonicalJson(
+      await Promise.all(
+        migrations.map(async (migration) => ({
+          checksum: await checksumMigration(migration),
+          id: migration.id,
+        })),
+      ),
+    ),
+  );
+}
+
+function requireOwner(
+  owner: MigrationLedgerOwnerHandle,
+  db: SqliteDatabaseLike,
+  authority: MigrationAssemblyAuthority,
+): OwnerState {
+  const state = ownerStates.get(owner);
+  if (
+    !state ||
+    state.db !== db ||
+    state.authority !== authority ||
+    state.connectionId !== connectionIdFor(db) ||
+    owner.namespace !== state.namespace ||
+    owner.installationId !== state.installationId ||
+    owner.connectionId !== state.connectionId
+  ) {
+    throw new MigrationStateError(
+      'Migration owner handle is forged, serialized, or belongs to another owner, connection, or installation',
+    );
+  }
+  return state;
+}
+
+async function requireCompleteManifest(
+  state: OwnerState,
+  applied: readonly AppliedMigration[],
+): Promise<void> {
+  const expected = await migrationChecksums(state.migrations);
+  validateApplied(state.namespace, applied, expected);
+  if (applied.length !== state.migrations.length) {
+    throw new MigrationStateError(
+      `Migration history for ${state.namespace} is incomplete`,
+    );
+  }
+}
+
+async function createLedgerSlice(
+  namespace: string,
+  applied: readonly AppliedMigration[],
+): Promise<MigrationLedgerSlice> {
+  const entries = applied.map((entry) =>
+    Object.freeze({
+      id: entry.id,
+      checksum: entry.checksum,
+      appliedAt: entry.appliedAt,
+    }),
+  );
+  const unsigned = {
+    format: 'diamond-migration-ledger-slice-v1' as const,
+    namespace,
+    entries,
+  };
+  return Object.freeze({
+    ...unsigned,
+    entries: Object.freeze(entries),
+    canonicalSha256: await sha256(canonicalJson(unsigned)),
+  });
+}
+
+async function verifyLedgerSlice(
+  state: OwnerState,
+  slice: MigrationLedgerSlice,
+): Promise<void> {
+  if (
+    slice.format !== 'diamond-migration-ledger-slice-v1' ||
+    slice.namespace !== state.namespace ||
+    typeof slice.canonicalSha256 !== 'string' ||
+    !Array.isArray(slice.entries)
+  ) {
+    throw new MigrationStateError(
+      'Migration ledger slice format or namespace is invalid',
+    );
+  }
+  const digest = await sha256(
+    canonicalJson({
+      format: slice.format,
+      namespace: slice.namespace,
+      entries: slice.entries,
+    }),
+  );
+  if (digest !== slice.canonicalSha256) {
+    throw new MigrationStateError(
+      `Migration ledger slice digest mismatch for ${state.namespace}`,
+    );
+  }
+  const expected = await migrationChecksums(state.migrations);
+  if (
+    slice.entries.length !== state.migrations.length ||
+    slice.entries.some(
+      (entry, index) =>
+        entry.id !== state.migrations[index]?.id ||
+        entry.checksum !== expected.get(entry.id) ||
+        !entry.appliedAt,
+    )
+  ) {
+    throw new MigrationStateError(
+      `Migration ledger slice does not match the registered manifest for ${state.namespace}`,
+    );
+  }
+  if ((await manifestSha256(state.migrations)) !== state.manifestDigest) {
+    throw new MigrationStateError(
+      `Registered migration manifest changed for ${state.namespace}`,
+    );
+  }
+}
+
+function sameSliceEntries(
+  applied: readonly AppliedMigration[],
+  entries: readonly MigrationLedgerSliceEntry[],
+): boolean {
+  return (
+    applied.length === entries.length &&
+    applied.every(
+      (entry, index) =>
+        entry.id === entries[index]?.id &&
+        entry.checksum === entries[index]?.checksum &&
+        entry.appliedAt === entries[index]?.appliedAt,
+    )
+  );
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new TypeError('Canonical JSON cannot encode non-finite numbers');
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`;
+  }
+  throw new TypeError('Canonical JSON received an unsupported value');
+}
+
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(value),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }

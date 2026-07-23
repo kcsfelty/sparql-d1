@@ -20,8 +20,8 @@ both commit.
 Full-value quads supplied to this example must be owned by the entity closure;
 do not include shared quads that another entity expects to retain. Production
 applications should validate property datatypes and command authorization before
-building the replacement document. Keep the public SPARQL endpoint read-only and
-expose editing through authenticated, application-owned commands.
+building the replacement document. Keep SPARQL execution read-only and expose
+editing through authorized, application-owned commands.
 
 The module includes create, complete-entity replace/delete, statement
 add/replace/delete, and rank-change commands. Every statement edit rebuilds the
@@ -88,4 +88,4 @@ verifies best-rank recomputation and grouped reference values, exercises full
 and special values, rejects duplicate identities and repeated creation, proves
 cross-entity ID isolation, exercises add/delete/rank lifecycle operations and
 deprecated-only rank behavior, rejects a stale edit, and queries through the
-normal SPARQL HTTP handler without an external service.
+transport-neutral SPARQL executor without an external service.

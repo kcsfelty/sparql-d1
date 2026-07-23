@@ -6,7 +6,13 @@ export type {
   SqliteFirstCapability,
   SqlitePreparedStatementLike,
   SqliteResultLike,
+  SqlCapabilities,
+  SqlDatabase,
+  SqlResult,
+  SqlStatement,
+  SqlValue,
 } from './d1-types.js';
+export { declareSqlCapabilities, readSqlCapabilities } from './d1-types.js';
 export {
   D1QuadSource,
   D1QuadSource as SqliteQuadSource,
@@ -15,6 +21,7 @@ export {
   QuadPatchConflictError,
   applyQuadPatch,
   prepareQuadPatch,
+  statementsForQuadPatch,
   deleteQuads,
   deleteMatchingQuads,
   insertQuads,
@@ -45,8 +52,19 @@ export {
   migrationLedgerTable,
   readAppliedMigrations,
   recordMigrationAdoption,
+  createMigrationAssemblyAuthorityV1,
+  createMigrationLedgerBackupV1,
+  registerMigrationLedgerOwnerV1,
 } from './migrations.js';
-export type { AppliedMigration, NamespacedMigration } from './migrations.js';
+export type {
+  AppliedMigration,
+  MigrationAssemblyAuthority,
+  MigrationLedgerBackup,
+  MigrationLedgerOwnerHandle,
+  MigrationLedgerSlice,
+  MigrationLedgerSliceEntry,
+  NamespacedMigration,
+} from './migrations.js';
 export { decodeTerm, encodeTerm } from './term-codec.js';
 export type { StoredTerm } from './term-codec.js';
 export {
@@ -56,11 +74,3 @@ export {
   sqlitePayloadByteLength,
 } from './sqlite-values.js';
 export type { SqlitePayload } from './sqlite-values.js';
-export { allowServiceUrls, createSparqlHandler } from './endpoint.js';
-export type {
-  D1SourceFactory,
-  D1SourceFactoryOptions,
-  ServicePolicy,
-  SparqlHandlerOptions,
-  SparqlRequestObservation,
-} from './endpoint.js';

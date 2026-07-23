@@ -110,37 +110,26 @@ const visibleMarkdown = (file) => {
 for (const [file, requirement] of [
   [
     'README.md',
-    "Diamond's published Worker entry points require the Cloudflare Workers `nodejs_compat` compatibility flag.",
+    'Diamond does not expose an HTTP handler, route, authentication, CORS, or rate-limiting layer.',
   ],
   [
     'docs/api.md',
-    'Workers runtime configured with the `nodejs_compat` compatibility flag.',
+    'It contains no transport request, headers, route, identity, CORS, authentication, or rate-limit policy.',
   ],
   [
     'docs/integration-validation.md',
-    'Worker consumers must enable the `nodejs_compat` compatibility flag.',
+    'No validation step provisions or deploys a hosted resource.',
   ],
 ]) {
   const text = visibleMarkdown(file);
   assert.ok(
     text.includes(requirement),
-    `${file} must state the positive Worker runtime requirement`,
-  );
-  assert.doesNotMatch(
-    text,
-    /(?:does not|do not|without) require `nodejs_compat`|`nodejs_compat` is optional/iu,
-    `${file} contradicts the Worker runtime requirement`,
+    `${file} must state the architecture-reset boundary`,
   );
 }
-const workerConfig = JSON.parse(
-  readFileSync('wrangler.jsonc', 'utf8')
-    .replace(/^\s*\/\/.*$/gmu, '')
-    .replace(/,\s*([}\]])/gu, '$1'),
-);
-assert.deepEqual(
-  workerConfig.compatibility_flags,
-  ['nodejs_compat'],
-  'Worker bundle fixture must declare exactly the supported compatibility flags',
+assert.ok(
+  !repositoryFiles.includes('wrangler.jsonc'),
+  'repository must not contain hosted runtime deployment configuration',
 );
 
 for (const workflow of repositoryFiles.filter((file) =>
