@@ -84,6 +84,12 @@ inspection or mutation; foreign tables and ledger namespaces are untouched.
 Rebuild mode returns an explicit `rebuild-required` report and never silently
 drops RDF.
 
+`validateDiamondBackupSectionV1()` verifies an archive and its exact migration
+evidence without accepting a database capability. Restore dry-runs remain
+target-readiness checks. A separately initialized, empty-domain target with the
+same Diamond migration manifest is compatible even when its ledger timestamps
+differ; migration IDs and checksums must still match.
+
 Exact 0.4.1 sources can be decoded through the read-only
 `decodeDiamond041LegacyOwnerV1()` compatibility seam. It requires an exact
 package/version attestation, inspects only fixed Diamond-owned legacy objects

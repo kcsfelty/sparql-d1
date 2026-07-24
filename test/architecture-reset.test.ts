@@ -20,6 +20,7 @@ import {
   adoptDiamond041LegacyOwnerV1,
   createDiamondBackupV1,
   decodeDiamond041LegacyOwnerV1,
+  validateDiamondBackupSectionV1,
 } from '../src/backup.js';
 import type { DiamondBackupSection } from '../src/backup.js';
 import { MemoryD1 } from './memory-d1.js';
@@ -177,6 +178,117 @@ describe('architecture reset ownership boundaries', () => {
     await expect(
       target.prepare('SELECT patch_id FROM rdf_patch_guards').all(),
     ).resolves.toMatchObject({ results: [{ patch_id: 'backup-guard' }] });
+  });
+
+  it('validates archives without a database and restores a compatible fresh target', async () => {
+    const source = memory();
+    await initializeStore(source);
+    await source.batch([
+      source
+        .prepare(
+          `UPDATE _gnolith_migrations SET applied_at = ?
+           WHERE namespace = ?`,
+        )
+        .bind('2020-01-01T00:00:00.000Z', diamondMigrationNamespace),
+      source
+        .prepare(
+          `INSERT INTO rdf_quads
+           (subject_key, subject_json, predicate_key, predicate_json,
+            object_key, object_json, graph_key, graph_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind('s', '"s"', 'p', '"p"', 'o', '"o"', 'g', '"g"'),
+      source
+        .prepare('INSERT INTO rdf_patch_guards (patch_id) VALUES (?)')
+        .bind('validation-guard'),
+    ]);
+    const sourceRegistration = await registerDiamond(source, 'same-coordinate');
+    const sourceBackup = createDiamondBackupV1({
+      db: source,
+      owner: sourceRegistration.owner,
+      ledgerBackup: sourceRegistration.ledger,
+    });
+    const section = await sourceBackup.export();
+    const before = await sourceBackup.inspect();
+
+    await expect(
+      validateDiamondBackupSectionV1(section),
+    ).resolves.toMatchObject({
+      valid: true,
+      quadCount: 1,
+      guardCount: 1,
+      payloadBytes: section.payload.byteLength,
+      sha256: section.sha256,
+    });
+    await expect(sourceBackup.inspect()).resolves.toEqual(before);
+    await expect(
+      validateDiamondBackupSectionV1({
+        ...section,
+        sha256: '0'.repeat(64),
+      }),
+    ).rejects.toThrow(/payload checksum/u);
+    await expect(
+      validateDiamondBackupSectionV1({
+        ...section,
+        ledger: {
+          ...section.ledger,
+          canonicalSha256: '0'.repeat(64),
+        },
+      }),
+    ).rejects.toThrow(/ledger checksum/u);
+
+    const target = memory();
+    await initializeStore(target);
+    await target.batch([
+      target
+        .prepare(
+          `UPDATE _gnolith_migrations SET applied_at = ?
+           WHERE namespace = ?`,
+        )
+        .bind('2021-01-01T00:00:00.000Z', diamondMigrationNamespace),
+    ]);
+    const targetRegistration = await registerDiamond(target, 'same-coordinate');
+    const targetBackup = createDiamondBackupV1({
+      db: target,
+      owner: targetRegistration.owner,
+      ledgerBackup: targetRegistration.ledger,
+    });
+    await expect(
+      targetBackup.dryRunImport(section, { mode: 'migration-bound' }),
+    ).resolves.toMatchObject({ dryRun: true, quadCount: 1, guardCount: 1 });
+    await expect(
+      targetBackup.import(section, { mode: 'migration-bound' }),
+    ).resolves.toMatchObject({ dryRun: false, quadCount: 1, guardCount: 1 });
+    await expect(
+      targetBackup.import(section, { mode: 'migration-bound' }),
+    ).rejects.toThrow(/requires empty Diamond tables/u);
+
+    const mismatch = memory();
+    await initializeStore(mismatch);
+    const mismatchRegistration = await registerDiamond(
+      mismatch,
+      'same-coordinate',
+    );
+    const mismatchBackup = createDiamondBackupV1({
+      db: mismatch,
+      owner: mismatchRegistration.owner,
+      ledgerBackup: mismatchRegistration.ledger,
+    });
+    await mismatch.batch([
+      mismatch
+        .prepare(
+          `UPDATE _gnolith_migrations SET checksum = ?
+           WHERE namespace = ? AND migration_id = ?`,
+        )
+        .bind(
+          '0'.repeat(64),
+          diamondMigrationNamespace,
+          diamondMigrations[0]!.id,
+        ),
+    ]);
+    await expect(
+      mismatchBackup.dryRunImport(section, { mode: 'migration-bound' }),
+    ).rejects.toThrow(/Checksum drift.*0001/u);
   });
 
   it('rejects checksum corruption before import and reports explicit rebuilds', async () => {

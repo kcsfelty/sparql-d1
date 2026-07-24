@@ -189,11 +189,6 @@ export function createMigrationLedgerBackupV1(
       await verifyLedgerSlice(state, slice);
       const applied = await readAppliedMigrations(db, state.namespace);
       await requireCompleteManifest(state, applied);
-      if (!sameSliceEntries(applied, slice.entries)) {
-        throw new MigrationStateError(
-          `Live ledger for ${state.namespace} does not match the supplied slice`,
-        );
-      }
     },
     async restoreNamespace(
       owner: MigrationLedgerOwnerHandle,
@@ -678,21 +673,6 @@ async function verifyLedgerSlice(
       `Registered migration manifest changed for ${state.namespace}`,
     );
   }
-}
-
-function sameSliceEntries(
-  applied: readonly AppliedMigration[],
-  entries: readonly MigrationLedgerSliceEntry[],
-): boolean {
-  return (
-    applied.length === entries.length &&
-    applied.every(
-      (entry, index) =>
-        entry.id === entries[index]?.id &&
-        entry.checksum === entries[index]?.checksum &&
-        entry.appliedAt === entries[index]?.appliedAt,
-    )
-  );
 }
 
 function canonicalJson(value: unknown): string {

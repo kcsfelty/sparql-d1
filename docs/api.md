@@ -58,6 +58,13 @@ versions, the Diamond ledger slice, an opaque `Uint8Array` payload, and SHA-256.
 Imports require an empty target or exact migration-bound target. Foreign objects
 are not enumerated for export and are never modified.
 
+`validateDiamondBackupSectionV1(section)` validates the section envelope,
+canonical payload, payload SHA-256, and exact Diamond migration-ledger evidence.
+It accepts no database capability, performs no I/O, and returns immutable counts
+and digest metadata. Use it to verify an archive while the live installation is
+populated. `dryRunImport` instead checks restore readiness and therefore requires
+a separate target that satisfies the selected empty-domain rule.
+
 `decodeDiamond041LegacyOwnerV1({source, attestation, limits})` accepts the
 read-only `SqlReadDatabase` capability and only the exact package/version
 attestation `{packageName: '@gnolith/diamond', packageVersion: '0.4.1'}`. It

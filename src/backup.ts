@@ -38,6 +38,14 @@ export interface DiamondBackupImportReport {
   readonly message: string;
 }
 
+export interface DiamondBackupValidationReport {
+  readonly valid: true;
+  readonly quadCount: number;
+  readonly guardCount: number;
+  readonly payloadBytes: number;
+  readonly sha256: string;
+}
+
 export interface DiamondBackup {
   inspect(): Promise<DiamondBackupInspection>;
   export(): Promise<DiamondBackupSection>;
@@ -219,6 +227,23 @@ export function adoptDiamond041LegacyOwnerV1(
   return section;
 }
 
+/**
+ * Validate an archive without receiving a database capability. This performs
+ * no I/O and cannot inspect or mutate a live installation.
+ */
+export async function validateDiamondBackupSectionV1(
+  section: DiamondBackupSection,
+): Promise<DiamondBackupValidationReport> {
+  const payload = await validateSection(section);
+  return Object.freeze({
+    valid: true as const,
+    quadCount: payload.quads.length,
+    guardCount: payload.guards.length,
+    payloadBytes: section.payload.byteLength,
+    sha256: section.sha256,
+  });
+}
+
 export function createDiamondBackupV1(options: {
   readonly db: SqlDatabase;
   readonly owner: MigrationLedgerOwnerHandle;
@@ -323,7 +348,7 @@ async function planImport(
   importOptions: DiamondBackupImportOptions,
   dryRun: boolean,
 ): Promise<DiamondBackupImportReport> {
-  const payload = await verifySection(section);
+  const payload = await validateSection(section);
   await options.ledgerBackup.verifyNamespace(options.owner, section.ledger);
   if (importOptions.mode === 'rebuild') {
     return {
@@ -397,6 +422,14 @@ async function planImport(
   return importReport(false, payload);
 }
 
+async function validateSection(
+  section: DiamondBackupSection,
+): Promise<BackupPayload> {
+  const payload = await verifySection(section);
+  await verifyDiamondLedgerSlice(section.ledger);
+  return payload;
+}
+
 async function verifySection(
   section: DiamondBackupSection,
 ): Promise<BackupPayload> {
@@ -428,6 +461,55 @@ async function verifySection(
     throw new TypeError('Invalid Diamond backup payload');
   }
   return parsed;
+}
+
+async function verifyDiamondLedgerSlice(
+  ledger: MigrationLedgerSlice,
+): Promise<void> {
+  if (
+    ledger?.format !== 'diamond-migration-ledger-slice-v1' ||
+    ledger.namespace !== diamondMigrationNamespace ||
+    typeof ledger.canonicalSha256 !== 'string' ||
+    !Array.isArray(ledger.entries)
+  ) {
+    throw new TypeError('Invalid Diamond backup migration ledger');
+  }
+  const digest = await sha256(
+    new TextEncoder().encode(
+      canonicalJson({
+        format: ledger.format,
+        namespace: ledger.namespace,
+        entries: ledger.entries,
+      }),
+    ),
+  );
+  if (digest !== ledger.canonicalSha256) {
+    throw new Error('Diamond backup migration ledger checksum mismatch');
+  }
+  const expectedChecksums = new Map(
+    await Promise.all(
+      diamondMigrations.map(
+        async (migration) =>
+          [migration.id, await checksumMigration(migration)] as const,
+      ),
+    ),
+  );
+  if (
+    ledger.entries.length !== diamondMigrations.length ||
+    ledger.entries.some(
+      (entry, index) =>
+        !entry ||
+        typeof entry !== 'object' ||
+        entry.id !== diamondMigrations[index]?.id ||
+        entry.checksum !== expectedChecksums.get(entry.id) ||
+        typeof entry.appliedAt !== 'string' ||
+        !entry.appliedAt,
+    )
+  ) {
+    throw new TypeError(
+      'Diamond backup migration ledger does not match the exact Diamond manifest',
+    );
+  }
 }
 
 function isQuadBackupRow(value: unknown): value is QuadBackupRow {

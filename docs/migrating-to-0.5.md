@@ -36,9 +36,15 @@ Use `createMigrationLedgerBackupV1()` for evidence and
 Backup restore choices are explicit:
 
 - `empty` creates Diamond's migration-bound schema and imports its RDF.
-- `migration-bound` requires the exact schema and ledger evidence already live.
+- `migration-bound` requires the exact schema and compatible migration IDs and
+  checksums already live. Independent application timestamps need not match.
 - `rebuild` imports nothing and returns `rebuild-required`; the host must rebuild
   RDF through its own trusted path.
+
+Use `validateDiamondBackupSectionV1(section)` for database-free archive
+verification. To test restore readiness, initialize a separate scratch target,
+register the same Diamond manifest, then call `dryRunImport(section,
+{mode: 'migration-bound'})`. Never use the populated source as an import target.
 
 For an exact detached 0.4.1 database, use the read-only compatibility seam:
 

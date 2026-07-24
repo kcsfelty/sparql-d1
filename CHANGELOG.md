@@ -5,6 +5,11 @@ Versioning after the first public release.
 
 ## [Unreleased]
 
+- Added database-free `validateDiamondBackupSectionV1` archive verification.
+  Migration-bound restore now accepts independently initialized empty-domain
+  targets with matching migration IDs/checksums while retaining mismatch and
+  nonempty-target rejection.
+
 ## [0.5.0] - 2026-07-23
 
 ### Added
