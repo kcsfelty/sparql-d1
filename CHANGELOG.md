@@ -9,6 +9,9 @@ Versioning after the first public release.
   Migration-bound restore now accepts independently initialized empty-domain
   targets with matching migration IDs/checksums while retaining mismatch and
   nonempty-target rejection.
+- Added bounded `DiamondBackupValidationError` reason codes and packed
+  JSON/archive round-trip coverage through validation and exact fresh-target
+  restore.
 
 ## [0.5.0] - 2026-07-23
 

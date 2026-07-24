@@ -89,6 +89,9 @@ evidence without accepting a database capability. Restore dry-runs remain
 target-readiness checks. A separately initialized, empty-domain target with the
 same Diamond migration manifest is compatible even when its ledger timestamps
 differ; migration IDs and checksums must still match.
+Canonical archive codecs must reconstruct the section's byte payload as a
+`Uint8Array`. Validation failures expose bounded owner-safe reason codes without
+including source or target data.
 
 Exact 0.4.1 sources can be decoded through the read-only
 `decodeDiamond041LegacyOwnerV1()` compatibility seam. It requires an exact

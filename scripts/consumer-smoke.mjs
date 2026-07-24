@@ -94,8 +94,22 @@ try {
         ledgerBackup: createMigrationLedgerBackupV1(db, sourceAuthority),
       });
       const section = await sourceBackup.export();
+      const archiveJson = JSON.stringify(section, (_key, value) =>
+        value instanceof Uint8Array
+          ? { diamondBackupBase64: Buffer.from(value).toString('base64') }
+          : value
+      );
+      const archivedSection = JSON.parse(archiveJson, (_key, value) =>
+        value
+        && typeof value === 'object'
+        && typeof value.diamondBackupBase64 === 'string'
+          ? Uint8Array.from(Buffer.from(value.diamondBackupBase64, 'base64'))
+          : value
+      );
       const sourceBefore = await sourceBackup.inspect();
-      const validation = await validateDiamondBackupSectionV1(section);
+      const validation = await validateDiamondBackupSectionV1(
+        archivedSection
+      );
       assert.deepEqual(
         { valid: validation.valid, quads: validation.quadCount },
         { valid: true, quads: 1 },
@@ -103,10 +117,18 @@ try {
       assert.deepEqual(await sourceBackup.inspect(), sourceBefore);
       await assert.rejects(
         validateDiamondBackupSectionV1({
-          ...section,
+          ...archivedSection,
           sha256: '0'.repeat(64),
         }),
-        /payload checksum/,
+        error => error?.reason === 'payload-checksum-mismatch'
+          && error?.details?.backupReason === 'payload-checksum-mismatch',
+      );
+      await assert.rejects(
+        validateDiamondBackupSectionV1({
+          ...archivedSection,
+          schemaVersion: 2,
+        }),
+        error => error?.reason === 'section-envelope-unsupported',
       );
 
       const target = new NodeSqliteDatabase(':memory:');
@@ -131,10 +153,30 @@ try {
         owner: targetOwner,
         ledgerBackup: createMigrationLedgerBackupV1(target, targetAuthority),
       });
-      await targetBackup.dryRunImport(section, { mode: 'migration-bound' });
-      await targetBackup.import(section, { mode: 'migration-bound' });
+      await targetBackup.dryRunImport(
+        archivedSection, { mode: 'migration-bound' }
+      );
+      await targetBackup.import(
+        archivedSection, { mode: 'migration-bound' }
+      );
+      assert.deepEqual(
+        (await target.prepare(
+          \`SELECT subject_key, predicate_key, object_key, graph_key
+           FROM rdf_quads ORDER BY id\`
+        ).all()).results.map(row => ({ ...row })),
+        [{ subject_key: 's', predicate_key: 'p', object_key: 'o', graph_key: 'g' }],
+      );
+      assert.deepEqual(
+        (await target.prepare(
+          \`SELECT migration_id AS id, checksum
+           FROM _gnolith_migrations WHERE namespace = ?
+           ORDER BY migration_id\`
+        ).bind(diamondMigrationNamespace).all()).results
+          .map(row => ({ ...row })),
+        archivedSection.ledger.entries.map(({ id, checksum }) => ({ id, checksum })),
+      );
       await assert.rejects(
-        targetBackup.import(section, { mode: 'migration-bound' }),
+        targetBackup.import(archivedSection, { mode: 'migration-bound' }),
         /requires empty Diamond tables/,
       );
       await target.close();

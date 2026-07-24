@@ -46,6 +46,36 @@ export interface DiamondBackupValidationReport {
   readonly sha256: string;
 }
 
+export type DiamondBackupValidationReason =
+  | 'section-envelope-unsupported'
+  | 'payload-size-exceeded'
+  | 'payload-checksum-mismatch'
+  | 'payload-encoding-invalid'
+  | 'payload-json-invalid'
+  | 'payload-structure-invalid'
+  | 'ledger-envelope-invalid'
+  | 'ledger-checksum-mismatch'
+  | 'ledger-manifest-mismatch';
+
+/**
+ * Bounded, owner-scoped backup diagnostic. Codes and messages never contain
+ * payload, table, installation, or target-database values.
+ */
+export class DiamondBackupValidationError extends Error {
+  readonly code = 'DIAMOND_BACKUP_VALIDATION_FAILED';
+  readonly details: Readonly<{ backupReason: DiamondBackupValidationReason }>;
+
+  constructor(
+    readonly reason: DiamondBackupValidationReason,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'DiamondBackupValidationError';
+    this.details = Object.freeze({ backupReason: reason });
+  }
+}
+
 export interface DiamondBackup {
   inspect(): Promise<DiamondBackupInspection>;
   export(): Promise<DiamondBackupSection>;
@@ -125,6 +155,7 @@ const DEFAULT_LEGACY_MAX_QUADS = 100_000;
 const HARD_LEGACY_MAX_QUADS = 1_000_000;
 const DEFAULT_LEGACY_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
 const HARD_LEGACY_MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
+const HARD_BACKUP_PAYLOAD_BYTES = 256 * 1024 * 1024;
 
 export async function decodeDiamond041LegacyOwnerV1(options: {
   readonly source: SqlReadDatabase;
@@ -434,20 +465,49 @@ async function verifySection(
   section: DiamondBackupSection,
 ): Promise<BackupPayload> {
   if (
-    section.owner !== 'diamond' ||
-    section.formatVersion !== 1 ||
-    section.schemaVersion !== 1 ||
-    !(section.payload instanceof Uint8Array)
+    section?.owner !== 'diamond' ||
+    section?.formatVersion !== 1 ||
+    section?.schemaVersion !== 1 ||
+    !(section?.payload instanceof Uint8Array) ||
+    typeof section.sha256 !== 'string'
   ) {
-    throw new TypeError('Unsupported Diamond backup section');
+    throw validationError(
+      'section-envelope-unsupported',
+      'Unsupported Diamond backup section envelope',
+    );
+  }
+  if (section.payload.byteLength > HARD_BACKUP_PAYLOAD_BYTES) {
+    throw validationError(
+      'payload-size-exceeded',
+      'Diamond backup payload exceeds the supported byte bound',
+    );
   }
   if ((await sha256(section.payload)) !== section.sha256) {
-    throw new Error('Diamond backup payload checksum mismatch');
+    throw validationError(
+      'payload-checksum-mismatch',
+      'Diamond backup payload checksum mismatch',
+    );
   }
-  const decoded = new TextDecoder('utf-8', { fatal: true }).decode(
-    section.payload,
-  );
-  const parsed = JSON.parse(decoded) as BackupPayload;
+  let decoded: string;
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(section.payload);
+  } catch (cause) {
+    throw validationError(
+      'payload-encoding-invalid',
+      'Diamond backup payload is not valid UTF-8',
+      cause,
+    );
+  }
+  let parsed: BackupPayload;
+  try {
+    parsed = JSON.parse(decoded) as BackupPayload;
+  } catch (cause) {
+    throw validationError(
+      'payload-json-invalid',
+      'Diamond backup payload is not valid JSON',
+      cause,
+    );
+  }
   if (
     parsed.format !== 'diamond-backup-payload-v1' ||
     !Array.isArray(parsed.quads) ||
@@ -458,7 +518,10 @@ async function verifySection(
     new Set(parsed.quads.map((row) => row.id)).size !== parsed.quads.length ||
     canonicalJson(parsed) !== decoded
   ) {
-    throw new TypeError('Invalid Diamond backup payload');
+    throw validationError(
+      'payload-structure-invalid',
+      'Diamond backup payload structure is invalid',
+    );
   }
   return parsed;
 }
@@ -472,7 +535,10 @@ async function verifyDiamondLedgerSlice(
     typeof ledger.canonicalSha256 !== 'string' ||
     !Array.isArray(ledger.entries)
   ) {
-    throw new TypeError('Invalid Diamond backup migration ledger');
+    throw validationError(
+      'ledger-envelope-invalid',
+      'Diamond backup migration ledger envelope is invalid',
+    );
   }
   const digest = await sha256(
     new TextEncoder().encode(
@@ -484,7 +550,10 @@ async function verifyDiamondLedgerSlice(
     ),
   );
   if (digest !== ledger.canonicalSha256) {
-    throw new Error('Diamond backup migration ledger checksum mismatch');
+    throw validationError(
+      'ledger-checksum-mismatch',
+      'Diamond backup migration ledger checksum mismatch',
+    );
   }
   const expectedChecksums = new Map(
     await Promise.all(
@@ -506,10 +575,21 @@ async function verifyDiamondLedgerSlice(
         !entry.appliedAt,
     )
   ) {
-    throw new TypeError(
+    throw validationError(
+      'ledger-manifest-mismatch',
       'Diamond backup migration ledger does not match the exact Diamond manifest',
     );
   }
+}
+
+function validationError(
+  reason: DiamondBackupValidationReason,
+  message: string,
+  cause?: unknown,
+): DiamondBackupValidationError {
+  return cause === undefined
+    ? new DiamondBackupValidationError(reason, message)
+    : new DiamondBackupValidationError(reason, message, { cause });
 }
 
 function isQuadBackupRow(value: unknown): value is QuadBackupRow {

@@ -209,33 +209,81 @@ describe('architecture reset ownership boundaries', () => {
       ledgerBackup: sourceRegistration.ledger,
     });
     const section = await sourceBackup.export();
+    const archivedSection = JSON.parse(
+      JSON.stringify(section, (_key, value: unknown) =>
+        value instanceof Uint8Array
+          ? { diamondBackupBytes: [...value] }
+          : value,
+      ),
+      (_key, value: unknown) => {
+        if (
+          value &&
+          typeof value === 'object' &&
+          Array.isArray(
+            (value as { diamondBackupBytes?: unknown }).diamondBackupBytes,
+          )
+        ) {
+          return Uint8Array.from(
+            (value as { diamondBackupBytes: number[] }).diamondBackupBytes,
+          );
+        }
+        return value;
+      },
+    ) as DiamondBackupSection;
     const before = await sourceBackup.inspect();
 
     await expect(
-      validateDiamondBackupSectionV1(section),
+      validateDiamondBackupSectionV1(archivedSection),
     ).resolves.toMatchObject({
       valid: true,
       quadCount: 1,
       guardCount: 1,
-      payloadBytes: section.payload.byteLength,
+      payloadBytes: archivedSection.payload.byteLength,
       sha256: section.sha256,
     });
     await expect(sourceBackup.inspect()).resolves.toEqual(before);
     await expect(
       validateDiamondBackupSectionV1({
-        ...section,
+        ...archivedSection,
         sha256: '0'.repeat(64),
       }),
-    ).rejects.toThrow(/payload checksum/u);
+    ).rejects.toMatchObject({
+      name: 'DiamondBackupValidationError',
+      code: 'DIAMOND_BACKUP_VALIDATION_FAILED',
+      reason: 'payload-checksum-mismatch',
+      details: { backupReason: 'payload-checksum-mismatch' },
+    });
     await expect(
       validateDiamondBackupSectionV1({
-        ...section,
+        ...archivedSection,
         ledger: {
-          ...section.ledger,
+          ...archivedSection.ledger,
           canonicalSha256: '0'.repeat(64),
         },
       }),
-    ).rejects.toThrow(/ledger checksum/u);
+    ).rejects.toMatchObject({ reason: 'ledger-checksum-mismatch' });
+    await expect(
+      validateDiamondBackupSectionV1({
+        ...archivedSection,
+        schemaVersion: 2,
+      } as never),
+    ).rejects.toMatchObject({ reason: 'section-envelope-unsupported' });
+    const invalidJson = new TextEncoder().encode('{');
+    await expect(
+      validateDiamondBackupSectionV1({
+        ...archivedSection,
+        payload: invalidJson,
+        sha256: await sha256(invalidJson),
+      }),
+    ).rejects.toMatchObject({ reason: 'payload-json-invalid' });
+    const invalidUtf8 = Uint8Array.of(0xff);
+    await expect(
+      validateDiamondBackupSectionV1({
+        ...archivedSection,
+        payload: invalidUtf8,
+        sha256: await sha256(invalidUtf8),
+      }),
+    ).rejects.toMatchObject({ reason: 'payload-encoding-invalid' });
 
     const target = memory();
     await initializeStore(target);
@@ -254,14 +302,48 @@ describe('architecture reset ownership boundaries', () => {
       ledgerBackup: targetRegistration.ledger,
     });
     await expect(
-      targetBackup.dryRunImport(section, { mode: 'migration-bound' }),
+      targetBackup.dryRunImport(archivedSection, {
+        mode: 'migration-bound',
+      }),
     ).resolves.toMatchObject({ dryRun: true, quadCount: 1, guardCount: 1 });
     await expect(
-      targetBackup.import(section, { mode: 'migration-bound' }),
+      targetBackup.import(archivedSection, { mode: 'migration-bound' }),
     ).resolves.toMatchObject({ dryRun: false, quadCount: 1, guardCount: 1 });
     await expect(
-      targetBackup.import(section, { mode: 'migration-bound' }),
+      targetBackup.import(archivedSection, { mode: 'migration-bound' }),
     ).rejects.toThrow(/requires empty Diamond tables/u);
+    await expect(
+      target
+        .prepare(
+          `SELECT subject_key, predicate_key, object_key, graph_key
+           FROM rdf_quads ORDER BY id`,
+        )
+        .all(),
+    ).resolves.toMatchObject({
+      results: [
+        {
+          subject_key: 's',
+          predicate_key: 'p',
+          object_key: 'o',
+          graph_key: 'g',
+        },
+      ],
+    });
+    await expect(
+      target
+        .prepare(
+          `SELECT migration_id AS id, checksum
+           FROM _gnolith_migrations WHERE namespace = ?
+           ORDER BY migration_id`,
+        )
+        .bind(diamondMigrationNamespace)
+        .all(),
+    ).resolves.toMatchObject({
+      results: archivedSection.ledger.entries.map(({ id, checksum }) => ({
+        id,
+        checksum,
+      })),
+    });
 
     const mismatch = memory();
     await initializeStore(mismatch);

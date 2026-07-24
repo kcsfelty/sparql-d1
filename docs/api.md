@@ -64,6 +64,12 @@ It accepts no database capability, performs no I/O, and returns immutable counts
 and digest metadata. Use it to verify an archive while the live installation is
 populated. `dryRunImport` instead checks restore readiness and therefore requires
 a separate target that satisfies the selected empty-domain rule.
+Archive codecs must round-trip `payload` as a `Uint8Array` (for example through
+a canonical base64 byte node); ordinary `JSON.stringify` alone does not preserve
+typed bytes. Validation failures use `DiamondBackupValidationError`, with the
+bounded `reason` and `details.backupReason` codes declared by
+`DiamondBackupValidationReason`. They never disclose payload, installation,
+table, or target-database values.
 
 `decodeDiamond041LegacyOwnerV1({source, attestation, limits})` accepts the
 read-only `SqlReadDatabase` capability and only the exact package/version
